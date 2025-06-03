@@ -1,5 +1,6 @@
 #include <LiquidCrystal.h>
 #include <AsyncTimer.h>
+#include <Queue.h>
 
 const int BUTTON_PIN = 3;
 const int displayWidth = 16;
@@ -19,24 +20,41 @@ struct LedArray {
   int index = 0;
 };
 
+// represents an event. We use a type parameter instead of std::function since the latter is not fully supported across Arduinos
+template<typename Func>
+struct Event {
+  Event(Func _callback, unsigned long _delay = 500)
+    : callback(_callback), delay(_delay) {}
+  Func* callback;
+  unsigned long delay;
+};
+
+// event queue pointer
+using EventPtr = Event<void()>*;
+// Queue<EventPtr, 10> events;
+
+// timer
+AsyncTimer t;
+// schedule function calls
+void schedule(Queue<EventPtr, 10> queue) {
+  if (queue.isEmpty()) {
+    return;
+  }
+  EventPtr next = queue.front();
+  t.setTimeout([&]() {
+    // call the lambda
+    next->callback();
+    // schedule next event
+    queue.dequeue();
+    schedule(queue);
+  },
+               next->delay);
+}
+
 // initialize the library by associating any needed LCD interface pin
 // with the arduino pin number it is connected to
 const int rs = 12, en = 11, d4 = 10, d5 = 9, d6 = 8, d7 = 7;
 const LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
-
-// timer
-AsyncTimer t;
-unsigned long timeLine = 0;
-// schedule function call
-template<typename Func>
-unsigned long schedule(Func f, unsigned long delay) {
-  timeLine += delay;
-  return t.setTimeout([&]() {
-    // call the lambda
-    f();
-  },
-                      timeLine);
-}
 
 // energy leds
 const int energyPins[] = { 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
@@ -68,52 +86,70 @@ void putOnLed(const LedArray& leds, int index, bool putOffPrev = true) {
   digitalWrite(leds.pins[leds.index], HIGH);
 }
 
-void blinkText(const String& message, int row = 0, int repetitions = 2, unsigned long delayMillis = 1000) {
-  lcd.clear();
-  lcd.setCursor(0, row);
-  lcd.print(message);
-  for (int idx = 1; idx <= repetitions; idx++) {
-    schedule([]() {
-      // Turn off the display:
-      lcd.noDisplay();
-    },
-             delayMillis * idx);
-    schedule([]() {
-      // Turn on the display:
-      lcd.display();
-    },
-             delayMillis * idx);
-  }
-}
+// void blinkText(const String& message, int row = 0, int repetitions = 2, unsigned long delayMillis = 1000) {
+//   for (int idx = 1; idx <= repetitions; idx++) {
+//     schedule([]() {
+//       // Turn off the display:
+//       lcd.noDisplay();
+//     },
+//              delayMillis * idx);
+//     schedule([]() {
+//       // Turn on the display:
+//       lcd.display();
+//     },
+//              delayMillis * idx);
+//   }
+// }
 
-void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
-  if (row == 0) {
-    lcd.clear();
-  }
-  int segmentSize = message.length() - displayWidth;
-  // Print a message to the LCD.
-  if (segmentSize <= 0) {
-    lcd.setCursor(0, row);
-    lcd.print(message);
-  } else {
-    for (int idx = 0; idx <= segmentSize; idx++) {
-      schedule([&]() {
-        String segment = message.substring(idx, idx + displayWidth);
-        lcd.setCursor(0, row);
-        lcd.print(segment);
-      },
-               delayMillis * (idx + 1));
-    }
-  }
+// void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
+//   if (row == 0) {
+//     lcd.clear();
+//   }
+//   int segmentSize = message.length() - displayWidth;
+//   // Print a message to the LCD.
+//   if (segmentSize <= 0) {
+//     lcd.setCursor(0, row);
+//     lcd.print(message);
+//   } else {
+//     for (int idx = 0; idx <= segmentSize; idx++) {
+//       schedule([&]() {
+//         String segment = message.substring(idx, idx + displayWidth);
+//         lcd.setCursor(0, row);
+//         lcd.print(segment);
+//       },
+//                delayMillis * (idx + 1));
+//     }
+//   }
+// }
+
+void writeHello() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Hello Players!");
 }
 
 void runIntro() {
-  blinkText("Hello Players!");
+  Queue<EventPtr, 10> events;
+  Event<decltype(writeHello)> ev1 = { writeHello, 1000 };
+  events.enqueue(&ev1);
+  // blinkText();
   // scrollText("Hello Players!  Welcome to the Game!");
   // delay(1000);
   // scrollText("Ready to play?");
   // delay(1000);
   // scrollText("Push the button", 1);
+  schedule(events);
+}
+
+unsigned int stage = 0;
+
+void nextStage() {
+  switch (stage) {
+    case 0:
+      runIntro();
+      stage++;
+      break;
+  }
 }
 
 void setup() {
@@ -135,8 +171,8 @@ void setup() {
 void loop() {
   // hadle timer
   t.handle();
-  timeLine = 0;
-  runIntro();
+  // proceed to next stage
+  nextStage();
   // handle button
   if (buttonReleased) {
     buttonReleased = false;
@@ -150,7 +186,7 @@ void loop() {
 
   // set the cursor to column 0, line 1
   // (note: line 1 is the second row, since counting begins with 0):
-  lcd.setCursor(0, 1);
+  // lcd.setCursor(0, 1);
   // print the number of seconds since reset:
   // lcd.print(millis() / 1000);
 }
