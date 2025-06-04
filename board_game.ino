@@ -20,19 +20,44 @@ struct LedArray {
   int index = 0;
 };
 
-// represents an event. We use a function pointer instead of std::function since the latter is not fully supported across Arduinos
-struct Event {
-  void run() {
-    if (callback) {
-      callback();
-    }
+// To represents an event and being able to easily enqueue it using capturing lambdas, we must use a
+// heap allocated object oriented wrapper instead of std::function since the latter is not fully supported across Arduinos
+
+// polymorphic callback interface
+struct Callback {
+  virtual void call() = 0;
+  virtual ~Callback() {}
+};
+
+// template wrapper for all (including capturing) lambda
+template<typename Lambda>
+struct LambdaWrapper : Callback {
+  Lambda fn;
+  LambdaWrapper(Lambda l)
+    : fn(l) {}
+  void call() override {
+    fn();
   }
-  void (*callback)();
+};
+
+// factory to create the wrapper (on the heap)
+template<typename Lambda>
+Callback* mkCb(Lambda l) {
+  return new LambdaWrapper<Lambda>(l);
+}
+
+// encapsulate the callback
+struct Event {
+  Callback* cb;
   unsigned long delay;
+  // deallocate memory (must be called manually after calls completed)
+  void cleanUp() {
+    delete cb;
+  }
 };
 
 // event queue pointer
-using EventQueue = Queue<Event, 10>;
+using EventQueue = Queue<Event, 30>;
 EventQueue events;
 
 // timer
@@ -44,7 +69,9 @@ void schedule() {
   }
   t.setTimeout([]() {
     // call the lambda
-    events.front().run();
+    events.front().cb->call();
+    // clean up the lambda
+    events.front().cleanUp();
     // schedule next event after this ran
     if (events.dequeue()) {
       schedule();
@@ -88,25 +115,46 @@ void putOnLed(const LedArray& leds, int index, bool putOffPrev = true) {
   digitalWrite(leds.pins[leds.index], HIGH);
 }
 
+void asyncDelay(unsigned long delayMillis) {
+  events.enqueue({ mkCb([]() {
+                     // do nothing
+                   }),
+                   delayMillis });
+}
+
+void blinkText(int repetitions = 2, unsigned long delayMillis = 800) {
+  for (int idx = 0; idx < repetitions; idx++) {
+    events.enqueue({ mkCb([]() {
+                       lcd.noDisplay();
+                     }),
+                     delayMillis });
+    events.enqueue({ mkCb([]() {
+                       lcd.display();
+                     }),
+                     delayMillis });
+  }
+}
+
 void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
   int segmentSize = message.length() - displayWidth;
-  // Print a message to the LCD.
   if (segmentSize <= 0) {
-    events.enqueue({ [message, row]() {
-                      if (row == 0) {
-                        lcd.clear();
-                      }
-                      lcd.setCursor(0, row);
-                      lcd.print(message);
-                    },
+    // no need to scroll (the message is short enough)
+    events.enqueue({ mkCb([message, row]() {
+                       if (row == 0) {
+                         lcd.clear();
+                       }
+                       lcd.setCursor(0, row);
+                       lcd.print(message);
+                     }),
                      delayMillis });
   } else {
     for (int idx = 0; idx <= segmentSize; idx++) {
-      events.enqueue({ [message, row, idx]() {
-                        String segment = message.substring(idx, idx + displayWidth);
-                        lcd.setCursor(0, row);
-                        lcd.print(segment);
-                      },
+      // schedule the print of shifted substrings of the message to be displayed one after another
+      events.enqueue({ mkCb([message, row, idx]() {
+                         String segment = message.substring(idx, idx + displayWidth);
+                         lcd.setCursor(0, row);
+                         lcd.print(segment);
+                       }),
                        delayMillis });
     }
   }
@@ -114,27 +162,20 @@ void scrollText(const String& message, int row = 0, unsigned long delayMillis = 
 
 void runIntro() {
   // initial greetings
-  events.enqueue({ []() {
-                    lcd.clear();
-                    lcd.setCursor(0, 0);
-                    lcd.print("Hello Players!");
-                  },
+  events.enqueue({ mkCb([]() {
+                     lcd.clear();
+                     lcd.setCursor(0, 0);
+                     lcd.print("Hello Players!");
+                   }),
                    10 });
   // blink the writing on the display
-  events.enqueue({ []() {
-                    lcd.noDisplay();
-                  },
-                   800 });
-  events.enqueue({ []() {
-                    lcd.display();
-                  },
-                   800 });
+  blinkText();
   // scroll text with more greetings
   scrollText("Hello Players!  Welcome to the Game!");
-  // delay(1000);
-  // scrollText("Ready to play?");
-  // delay(1000);
-  // scrollText("Push the button", 1);
+  asyncDelay(1000);
+  scrollText("Ready to play?");
+  asyncDelay(1000);
+  scrollText("Push the button", 1);
   schedule();
 }
 
