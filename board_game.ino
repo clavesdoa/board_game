@@ -20,13 +20,11 @@ struct LedArray {
   int index = 0;
 };
 
-// represents an event. We use a type parameter instead of std::function since the latter is not fully supported across Arduinos
+// represents an event. We use a function pointer instead of std::function since the latter is not fully supported across Arduinos
 struct Event {
   void run() {
     if (callback) {
-      Serial.print("a");
       callback();
-      Serial.print("b");
     }
   }
   void (*callback)();
@@ -39,25 +37,20 @@ EventQueue events;
 
 // timer
 AsyncTimer t;
-// schedule function calls
+// schedule function calls so that the events run in a chain
 void schedule() {
-  Serial.print("Scheduling: ");
-  Serial.println(events.size());
   if (events.isEmpty()) {
     return;
   }
-  Event next = events.front();
   t.setTimeout([&]() {
-    Serial.print("x");
     // call the lambda
-    next.run();
-    Serial.print("y");
-    // schedule next event
+    events.front().run();
+    // schedule next event after this ran
     if (events.dequeue()) {
       schedule();
     }
   },
-               next.delay);
+               events.front().delay);
 }
 
 // initialize the library by associating any needed LCD interface pin
@@ -95,20 +88,6 @@ void putOnLed(const LedArray& leds, int index, bool putOffPrev = true) {
   digitalWrite(leds.pins[leds.index], HIGH);
 }
 
-// void blinkText(unsigned long delayMillis = 1000) {
-
-//   schedule([]() {
-//     // Turn off the display:
-//     lcd.noDisplay();
-//   },
-//            delayMillis * idx);
-//   schedule([]() {
-//     // Turn on the display:
-//     lcd.display();
-//   },
-//            delayMillis * idx);
-// }
-
 // void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
 //   if (row == 0) {
 //     lcd.clear();
@@ -131,36 +110,22 @@ void putOnLed(const LedArray& leds, int index, bool putOffPrev = true) {
 // }
 
 void runIntro() {
+  // initial greetings
   events.enqueue({ []() {
-                    Serial.print("f");
+                    lcd.clear();
+                    lcd.setCursor(0, 0);
+                    lcd.print("Hello Players!");
                   },
                    1000 });
+  // blink the writing on the display
   events.enqueue({ []() {
-                    Serial.print("u");
+                    lcd.noDisplay();
                   },
-                   1000 });
+                   500 });
   events.enqueue({ []() {
-                    Serial.print("f");
+                    lcd.display();
                   },
-                   1000 });
-  events.enqueue({ []() {
-                    Serial.print("f");
-                  },
-                   1000 });
-  // events.enqueue({ []() {
-  //                   lcd.clear();
-  //                   lcd.setCursor(0, 0);
-  //                   lcd.print("Hello Players!");
-  //                 },
-  //                  1000 });
-  // events.enqueue({ []() {
-  //                   lcd.noDisplay();
-  //                 },
-  //                  1000 });
-  // events.enqueue({ []() {
-  //                   lcd.display();
-  //                 },
-  //                  1000 });
+                   500 });
   // scrollText("Hello Players!  Welcome to the Game!");
   // delay(1000);
   // scrollText("Ready to play?");
@@ -207,7 +172,7 @@ void loop() {
     // do something here, for example print on Serial
     Serial.println("Button released");
   }
-  delay(100);
+  //delay(100);
   // fillUpEnergy(bossEnergyPins, BOSS_ENERGY);
   // loopPins(playerPointsPins, PLAYER_POINTS);
   // loopPins(pathLightPins, PATH_LIGHTS);
