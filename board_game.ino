@@ -21,34 +21,43 @@ struct LedArray {
 };
 
 // represents an event. We use a type parameter instead of std::function since the latter is not fully supported across Arduinos
-template<typename Func>
 struct Event {
-  Event(Func _callback, unsigned long _delay = 500)
-    : callback(_callback), delay(_delay) {}
-  Func* callback;
+  void run() {
+    if (callback) {
+      Serial.print("a");
+      callback();
+      Serial.print("b");
+    }
+  }
+  void (*callback)();
   unsigned long delay;
 };
 
 // event queue pointer
-using EventPtr = Event<void()>*;
-// Queue<EventPtr, 10> events;
+using EventQueue = Queue<Event, 10>;
+EventQueue events;
 
 // timer
 AsyncTimer t;
 // schedule function calls
-void schedule(Queue<EventPtr, 10> queue) {
-  if (queue.isEmpty()) {
+void schedule() {
+  Serial.print("Scheduling: ");
+  Serial.println(events.size());
+  if (events.isEmpty()) {
     return;
   }
-  EventPtr next = queue.front();
+  Event next = events.front();
   t.setTimeout([&]() {
+    Serial.print("x");
     // call the lambda
-    next->callback();
+    next.run();
+    Serial.print("y");
     // schedule next event
-    queue.dequeue();
-    schedule(queue);
+    if (events.dequeue()) {
+      schedule();
+    }
   },
-               next->delay);
+               next.delay);
 }
 
 // initialize the library by associating any needed LCD interface pin
@@ -86,19 +95,18 @@ void putOnLed(const LedArray& leds, int index, bool putOffPrev = true) {
   digitalWrite(leds.pins[leds.index], HIGH);
 }
 
-// void blinkText(const String& message, int row = 0, int repetitions = 2, unsigned long delayMillis = 1000) {
-//   for (int idx = 1; idx <= repetitions; idx++) {
-//     schedule([]() {
-//       // Turn off the display:
-//       lcd.noDisplay();
-//     },
-//              delayMillis * idx);
-//     schedule([]() {
-//       // Turn on the display:
-//       lcd.display();
-//     },
-//              delayMillis * idx);
-//   }
+// void blinkText(unsigned long delayMillis = 1000) {
+
+//   schedule([]() {
+//     // Turn off the display:
+//     lcd.noDisplay();
+//   },
+//            delayMillis * idx);
+//   schedule([]() {
+//     // Turn on the display:
+//     lcd.display();
+//   },
+//            delayMillis * idx);
 // }
 
 // void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
@@ -122,23 +130,43 @@ void putOnLed(const LedArray& leds, int index, bool putOffPrev = true) {
 //   }
 // }
 
-void writeHello() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Hello Players!");
-}
-
 void runIntro() {
-  Queue<EventPtr, 10> events;
-  Event<decltype(writeHello)> ev1 = { writeHello, 1000 };
-  events.enqueue(&ev1);
-  // blinkText();
+  events.enqueue({ []() {
+                    Serial.print("f");
+                  },
+                   1000 });
+  events.enqueue({ []() {
+                    Serial.print("u");
+                  },
+                   1000 });
+  events.enqueue({ []() {
+                    Serial.print("f");
+                  },
+                   1000 });
+  events.enqueue({ []() {
+                    Serial.print("f");
+                  },
+                   1000 });
+  // events.enqueue({ []() {
+  //                   lcd.clear();
+  //                   lcd.setCursor(0, 0);
+  //                   lcd.print("Hello Players!");
+  //                 },
+  //                  1000 });
+  // events.enqueue({ []() {
+  //                   lcd.noDisplay();
+  //                 },
+  //                  1000 });
+  // events.enqueue({ []() {
+  //                   lcd.display();
+  //                 },
+  //                  1000 });
   // scrollText("Hello Players!  Welcome to the Game!");
   // delay(1000);
   // scrollText("Ready to play?");
   // delay(1000);
   // scrollText("Push the button", 1);
-  schedule(events);
+  schedule();
 }
 
 unsigned int stage = 0;
