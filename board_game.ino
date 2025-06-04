@@ -42,7 +42,7 @@ void schedule() {
   if (events.isEmpty()) {
     return;
   }
-  t.setTimeout([&]() {
+  t.setTimeout([]() {
     // call the lambda
     events.front().run();
     // schedule next event after this ran
@@ -88,26 +88,29 @@ void putOnLed(const LedArray& leds, int index, bool putOffPrev = true) {
   digitalWrite(leds.pins[leds.index], HIGH);
 }
 
-// void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
-//   if (row == 0) {
-//     lcd.clear();
-//   }
-//   int segmentSize = message.length() - displayWidth;
-//   // Print a message to the LCD.
-//   if (segmentSize <= 0) {
-//     lcd.setCursor(0, row);
-//     lcd.print(message);
-//   } else {
-//     for (int idx = 0; idx <= segmentSize; idx++) {
-//       schedule([&]() {
-//         String segment = message.substring(idx, idx + displayWidth);
-//         lcd.setCursor(0, row);
-//         lcd.print(segment);
-//       },
-//                delayMillis * (idx + 1));
-//     }
-//   }
-// }
+void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
+  int segmentSize = message.length() - displayWidth;
+  // Print a message to the LCD.
+  if (segmentSize <= 0) {
+    events.enqueue({ [message, row]() {
+                      if (row == 0) {
+                        lcd.clear();
+                      }
+                      lcd.setCursor(0, row);
+                      lcd.print(message);
+                    },
+                     delayMillis });
+  } else {
+    for (int idx = 0; idx <= segmentSize; idx++) {
+      events.enqueue({ [message, row, idx]() {
+                        String segment = message.substring(idx, idx + displayWidth);
+                        lcd.setCursor(0, row);
+                        lcd.print(segment);
+                      },
+                       delayMillis });
+    }
+  }
+}
 
 void runIntro() {
   // initial greetings
@@ -116,17 +119,18 @@ void runIntro() {
                     lcd.setCursor(0, 0);
                     lcd.print("Hello Players!");
                   },
-                   1000 });
+                   10 });
   // blink the writing on the display
   events.enqueue({ []() {
                     lcd.noDisplay();
                   },
-                   500 });
+                   800 });
   events.enqueue({ []() {
                     lcd.display();
                   },
-                   500 });
-  // scrollText("Hello Players!  Welcome to the Game!");
+                   800 });
+  // scroll text with more greetings
+  scrollText("Hello Players!  Welcome to the Game!");
   // delay(1000);
   // scrollText("Ready to play?");
   // delay(1000);
