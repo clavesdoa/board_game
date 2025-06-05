@@ -1,6 +1,8 @@
 #ifndef BOARD_GAME_H
 #define BOARD_GAME_H
 
+// we use this implementation, install it in your Arduino IDE
+// https://github.com/Francis-Magallanes/CircularQueue
 #include <Queue.h>
 
 // To represents an event and being able to easily enqueue it using capturing lambdas, we must use a heap-allocated,
@@ -40,23 +42,14 @@ struct Event {
 };
 
 // event queue pointer (must be preallocated with enough storage)
-using EventQueue = Queue<Event, 30>;
-// utility queue to manage generic events
-EventQueue events;
+using EventQueue = Queue<Event, 35>;
 
-// represents a led array
+// represents a led array (basically a strip of leds connected to pins)
 struct LedArray {
   LedArray(const int* _pins, int _size)
     : pins(_pins), size(_size){};
-  // set index, returns the current setting
-  int setIndex(int newIndex) {
-    int current = index;
-    index = newIndex % size;
-    return current;
-  }
   const int* pins;
   int size;
-  int index = 0;
   EventQueue ledEvents;
 };
 

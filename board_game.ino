@@ -8,21 +8,21 @@ const int displayWidth = 16;
 // timer
 AsyncTimer t;
 // schedule function calls so that the events run in a chain
-void schedule() {
-  if (events.isEmpty()) {
+void schedule(const EventQueue& queue) {
+  if (queue.isEmpty()) {
     return;
   }
-  t.setTimeout([]() {
+  t.setTimeout([&queue]() {
     // call the lambda
-    events.front().cb->call();
+    queue.front().cb->call();
     // clean up the lambda
-    events.front().cleanUp();
-    // schedule next event after this ran
-    if (events.dequeue()) {
-      schedule();
+    queue.front().cleanUp();
+    // schedule next event after this completed
+    if (queue.dequeue()) {
+      schedule(queue);
     }
   },
-               events.front().delay);
+               queue.front().delay);
 }
 
 // initialize the library by associating any needed LCD interface pin
@@ -53,79 +53,91 @@ void setUpPins(const LedArray& leds) {
   }
 }
 
-void putOnLed(const LedArray& leds, int index, bool putOffPrev = true) {
-  if (putOffPrev) {
-    digitalWrite(leds.pins[leds.setIndex(index)], LOW);
+void putOnOffLed(const LedArray& leds, int index, bool putOn = true, unsigned long delayMillis = 300) {
+  leds.ledEvents.enqueue({ mkCb([index, putOn, &leds]() {
+                             digitalWrite(leds.pins[index], putOn ? HIGH : LOW);
+                           }),
+                           delayMillis });
+}
+
+// put on/off leds of a led array in sequence
+void lightSequence(const LedArray& leds, bool on = true) {
+  for (int idx = 0; idx < leds.size; idx++) {
+    putOnOffLed(leds, idx, on);
   }
-  digitalWrite(leds.pins[leds.index], HIGH);
 }
 
-void asyncDelay(unsigned long delayMillis) {
-  events.enqueue({ mkCb([]() {
-                     // do nothing
-                   }),
-                   delayMillis });
+void asyncDelay(const EventQueue& queue, unsigned long delayMillis) {
+  queue.enqueue({ mkCb([]() {
+                    // do nothing
+                  }),
+                  delayMillis });
 }
 
-void blinkText(int repetitions = 2, unsigned long delayMillis = 800) {
+void blinkText(const EventQueue& queue, int repetitions = 2, unsigned long delayMillis = 800) {
   for (int idx = 0; idx < repetitions; idx++) {
-    events.enqueue({ mkCb([]() {
-                       lcd.noDisplay();
-                     }),
-                     delayMillis });
-    events.enqueue({ mkCb([]() {
-                       lcd.display();
-                     }),
-                     delayMillis });
+    queue.enqueue({ mkCb([]() {
+                      lcd.noDisplay();
+                    }),
+                    delayMillis });
+    queue.enqueue({ mkCb([]() {
+                      lcd.display();
+                    }),
+                    delayMillis });
   }
 }
 
-void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
+void scrollText(const EventQueue& queue, const String& message, int row = 0, unsigned long delayMillis = 300) {
   int segmentSize = message.length() - displayWidth;
   if (segmentSize <= 0) {
     // no need to scroll (the message is short enough)
-    events.enqueue({ mkCb([message, row]() {
-                       if (row == 0) {
-                         lcd.clear();
-                       }
-                       lcd.setCursor(0, row);
-                       lcd.print(message);
-                     }),
-                     delayMillis });
+    queue.enqueue({ mkCb([message, row]() {
+                      if (row == 0) {
+                        lcd.clear();
+                      }
+                      lcd.setCursor(0, row);
+                      lcd.print(message);
+                    }),
+                    delayMillis });
   } else {
     for (int idx = 0; idx <= segmentSize; idx++) {
       // schedule the print of shifted substrings of the message to be displayed one after another
-      events.enqueue({ mkCb([message, row, idx]() {
-                         String segment = message.substring(idx, idx + displayWidth);
-                         lcd.setCursor(0, row);
-                         lcd.print(segment);
-                       }),
-                       delayMillis });
+      queue.enqueue({ mkCb([message, row, idx]() {
+                        String segment = message.substring(idx, idx + displayWidth);
+                        lcd.setCursor(0, row);
+                        lcd.print(segment);
+                      }),
+                      delayMillis });
     }
   }
 }
 
 void runIntro() {
+  // utility queue to manage generic events
+  EventQueue events;
   // initial greetings
   events.enqueue({ mkCb([]() {
                      lcd.clear();
                      lcd.setCursor(0, 0);
-                     lcd.print("Hello Players!");
+                     lcd.print(" Hello Players!");
                    }),
                    10 });
   // blink the writing on the display
-  blinkText();
+  blinkText(events);
+  asyncDelay(events, 500);
   // scroll text with more greetings
-  scrollText("Hello Players!  Welcome to the Game!");
-  asyncDelay(1000);
-  scrollText("Ready to play?");
-  asyncDelay(1000);
-  scrollText("Push the button!", 1);
-  schedule();
+  scrollText(events, " Hello Players!  Welcome to the Game!");
+  asyncDelay(events, 1000);
+  scrollText(events, "Ready to play?");
+  asyncDelay(events, 1000);
+  scrollText(events, "Push the button!", 1);
+  schedule(events);
 }
 
 void lightDemo() {
-  
+  lightSequence(bossEnergyLeds);
+  lightSequence(bossEnergyLeds, false);
+  schedule(bossEnergyLeds.ledEvents);
 }
 
 unsigned int stage = 0;
