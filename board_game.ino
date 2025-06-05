@@ -1,64 +1,9 @@
 #include <LiquidCrystal.h>
 #include <AsyncTimer.h>
-#include <Queue.h>
+#include "board_game.h"
 
 const int BUTTON_PIN = 3;
 const int displayWidth = 16;
-
-// represents a led array
-struct LedArray {
-  LedArray(const int* _pins, int _size)
-    : pins(_pins), size(_size){};
-  // set index, returns the current setting
-  int setIndex(int newIndex) {
-    int current = index;
-    index = newIndex % size;
-    return current;
-  }
-  const int* pins;
-  int size;
-  int index = 0;
-};
-
-// To represents an event and being able to easily enqueue it using capturing lambdas, we must use a
-// heap allocated object oriented wrapper instead of std::function since the latter is not fully supported across Arduinos
-
-// polymorphic callback interface
-struct Callback {
-  virtual void call() = 0;
-  virtual ~Callback() {}
-};
-
-// template wrapper for all (including capturing) lambda
-template<typename Lambda>
-struct LambdaWrapper : Callback {
-  Lambda fn;
-  LambdaWrapper(Lambda l)
-    : fn(l) {}
-  void call() override {
-    fn();
-  }
-};
-
-// factory to create the wrapper (on the heap)
-template<typename Lambda>
-Callback* mkCb(Lambda l) {
-  return new LambdaWrapper<Lambda>(l);
-}
-
-// encapsulate the callback
-struct Event {
-  Callback* cb;
-  unsigned long delay;
-  // deallocate memory (must be called manually after calls completed)
-  void cleanUp() {
-    delete cb;
-  }
-};
-
-// event queue pointer
-using EventQueue = Queue<Event, 30>;
-EventQueue events;
 
 // timer
 AsyncTimer t;
@@ -175,8 +120,12 @@ void runIntro() {
   asyncDelay(1000);
   scrollText("Ready to play?");
   asyncDelay(1000);
-  scrollText("Push the button", 1);
+  scrollText("Push the button!", 1);
   schedule();
+}
+
+void lightDemo() {
+  
 }
 
 unsigned int stage = 0;
@@ -187,6 +136,13 @@ void nextStage() {
       runIntro();
       stage++;
       break;
+    case 1:
+      lightDemo();
+      stage++;
+      break;
+    default:
+      //
+      break;
   }
 }
 
@@ -195,7 +151,7 @@ void setup() {
   setUpPins(bossEnergyLeds);
   setUpPins(playerPointsLeds);
   setUpPins(pathLeds);
-
+  // setup serial
   Serial.begin(9600);
   // setup button
   pinMode(BUTTON_PIN, INPUT);
