@@ -25,6 +25,18 @@ void schedule(const EventQueue& queue) {
                queue.front().delay);
 }
 
+// state machine
+
+enum Stage {
+  INTRO,
+  LIGHT_DEMO,
+  READY,
+  THROW_DICE,
+  NEXT_PLAYER
+};
+
+Stage currentStage = INTRO;
+
 // initialize the library by associating any needed LCD interface pin
 // with the arduino pin number it is connected to
 const int rs = 12, en = 11, d4 = 10, d5 = 9, d6 = 8, d7 = 7;
@@ -134,23 +146,46 @@ void runIntro() {
   schedule(events);
 }
 
-void lightDemo() {
-  lightSequence(bossEnergyLeds);
-  lightSequence(bossEnergyLeds, false);
-  schedule(bossEnergyLeds.ledEvents);
+void ledsDemo(const LedArray& leds) {
+  lightSequence(leds);
+  lightSequence(leds, false);
+  // loop demo until players start the game
+  leds.ledEvents.enqueue({ mkCb([&leds]() {
+                             if (currentStage == READY) {
+                               ledsDemo(leds);
+                             }
+                           }),
+                           10 });
 }
 
-unsigned int stage = 0;
+void lightDemo() {
+  // boss energy light demo
+  ledsDemo(bossEnergyLeds);
+  schedule(bossEnergyLeds.ledEvents);
+  // player points demo
+  ledsDemo(playerPointsLeds);
+  schedule(playerPointsLeds.ledEvents);
+  // path leds demo
+  ledsDemo(pathLeds);
+  schedule(pathLeds.ledEvents);
+}
 
 void nextStage() {
-  switch (stage) {
-    case 0:
+  switch (currentStage) {
+    case INTRO:
       runIntro();
-      stage++;
+      currentStage = LIGHT_DEMO;
       break;
-    case 1:
+    case LIGHT_DEMO:
       lightDemo();
-      stage++;
+      currentStage = READY;
+      break;
+    case THROW_DICE:
+      lcd.clear();
+      EventQueue events;
+      scrollText(events, "Ready player 1");
+      schedule(events);
+      currentStage = NEXT_PLAYER;
       break;
     default:
       //
@@ -182,8 +217,10 @@ void loop() {
   // handle button
   if (buttonReleased) {
     buttonReleased = false;
-    // do something here, for example print on Serial
     Serial.println("Button released");
+    if (currentStage == READY) {
+      currentStage = THROW_DICE;
+    }
   }
   //delay(100);
   // fillUpEnergy(bossEnergyPins, BOSS_ENERGY);
