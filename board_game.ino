@@ -1,4 +1,6 @@
 #include <LiquidCrystal.h>
+// we use this implementation, install it in your Arduino IDE
+// https://github.com/Aasim-A/AsyncTimer
 #include <AsyncTimer.h>
 #include "board_game.h"
 
@@ -8,11 +10,11 @@ const int displayWidth = 16;
 // timer
 AsyncTimer t;
 // schedule function calls so that the events run in a chain
-void schedule(const EventQueue& queue) {
+unsigned short schedule(const EventQueue& queue) {
   if (queue.isEmpty()) {
-    return;
+    return 0;
   }
-  t.setTimeout([&queue]() {
+  return t.setTimeout([&queue]() {
     // call the lambda
     queue.front().cb->call();
     // clean up the lambda
@@ -22,14 +24,13 @@ void schedule(const EventQueue& queue) {
       schedule(queue);
     }
   },
-               queue.front().delay);
+                      queue.front().delay);
 }
 
 // number of players
 unsigned int numPlayers = 0;
 
 // state "machine"
-
 enum Stage {
   INTRO,
   LIGHT_DEMO,
@@ -40,7 +41,6 @@ enum Stage {
   NEXT_PLAYER,
   THROW_DICE
 };
-
 Stage currentStage = INTRO;
 
 // initialize the library by associating any needed LCD interface pin
@@ -196,6 +196,10 @@ void nextStage() {
       scrollText(events, "  How many players? Push the button to select.");
       schedule(events);
       break;
+    case NUM_PLAYERS:
+      currentStage = NEXT_PLAYER;
+      scrollText(events, "Player n. 1 ready!");
+      break;
     default:
       //
       break;
@@ -218,6 +222,9 @@ void setup() {
   lcd.begin(16, 2);
 }
 
+// event to cancel
+unsigned short timerId = 0;
+
 void loop() {
   // hadle timer
   t.handle();
@@ -232,10 +239,17 @@ void loop() {
         currentStage = START;
         break;
       case SELECT_PLAYERS:
+        // cancel current timeout
+        t.cancel(timerId);
         numPlayers++;
-        Serial.println(numPlayers);
         lcd.setCursor(0, 1);
         lcd.print(numPlayers);
+        // create new timeout
+        events.enqueue({ mkCb([]() {
+                           currentStage = NUM_PLAYERS;
+                         }),
+                         5000 });
+        timerId = schedule(events);
         break;
       default:
         //
