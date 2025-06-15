@@ -43,6 +43,8 @@ struct Event {
 
 // event queue pointer (must be preallocated with enough storage)
 using EventQueue = Queue<Event, 35>;
+// utility queue to manage generic events
+EventQueue events;
 
 // represents a led array (basically a strip of leds connected to pins)
 struct LedArray {
@@ -53,4 +55,4 @@ struct LedArray {
   EventQueue ledEvents;
 };
 
-#endif // BOARD_GAME_H
+#endif  // BOARD_GAME_H

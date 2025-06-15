@@ -25,14 +25,20 @@ void schedule(const EventQueue& queue) {
                queue.front().delay);
 }
 
-// state machine
+// number of players
+unsigned int numPlayers = 0;
+
+// state "machine"
 
 enum Stage {
   INTRO,
   LIGHT_DEMO,
   READY,
-  THROW_DICE,
-  NEXT_PLAYER
+  START,
+  SELECT_PLAYERS,
+  NUM_PLAYERS,
+  NEXT_PLAYER,
+  THROW_DICE
 };
 
 Stage currentStage = INTRO;
@@ -53,9 +59,15 @@ const int pathPins[] = { 42, 43, 44, 45, 46, 47, 48, 49, 50, 51 };
 const LedArray pathLeds = LedArray(pathPins, sizeof(pathPins) / sizeof(pathPins[0]));
 
 // manages the button events
+volatile unsigned long lastInterruptTime = 0;
+const unsigned long debounceDelay = 50;
 volatile byte buttonReleased = false;
 void buttonReleasedInterrupt() {
-  buttonReleased = true;
+  unsigned long now = millis();
+  if (now - lastInterruptTime > debounceDelay) {
+    buttonReleased = true;
+    lastInterruptTime = now;
+  }
 }
 
 void setUpPins(const LedArray& leds) {
@@ -125,8 +137,6 @@ void scrollText(const EventQueue& queue, const String& message, int row = 0, uns
 }
 
 void runIntro() {
-  // utility queue to manage generic events
-  EventQueue events;
   // initial greetings
   events.enqueue({ mkCb([]() {
                      lcd.clear();
@@ -173,19 +183,18 @@ void lightDemo() {
 void nextStage() {
   switch (currentStage) {
     case INTRO:
-      runIntro();
       currentStage = LIGHT_DEMO;
+      runIntro();
       break;
     case LIGHT_DEMO:
-      lightDemo();
       currentStage = READY;
+      lightDemo();
       break;
-    case THROW_DICE:
+    case START:
+      currentStage = SELECT_PLAYERS;
       lcd.clear();
-      EventQueue events;
-      scrollText(events, "Ready player 1");
+      scrollText(events, "  How many players? Push the button to select.");
       schedule(events);
-      currentStage = NEXT_PLAYER;
       break;
     default:
       //
@@ -218,8 +227,19 @@ void loop() {
   if (buttonReleased) {
     buttonReleased = false;
     Serial.println("Button released");
-    if (currentStage == READY) {
-      currentStage = THROW_DICE;
+    switch (currentStage) {
+      case READY:
+        currentStage = START;
+        break;
+      case SELECT_PLAYERS:
+        numPlayers++;
+        Serial.println(numPlayers);
+        lcd.setCursor(0, 1);
+        lcd.print(numPlayers);
+        break;
+      default:
+        //
+        break;
     }
   }
   //delay(100);
