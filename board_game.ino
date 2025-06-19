@@ -21,6 +21,7 @@ unsigned short schedule(const EventQueue& queue) {
     queue.front().cleanUp();
     // schedule next event after this completed
     if (queue.dequeue()) {
+      // futile returning a value now, it could not be read in any case
       schedule(queue);
     }
   },
@@ -29,19 +30,6 @@ unsigned short schedule(const EventQueue& queue) {
 
 // number of players
 unsigned int numPlayers = 0;
-
-// state "machine"
-enum Stage {
-  INTRO,
-  LIGHT_DEMO,
-  READY,
-  START,
-  SELECT_PLAYERS,
-  NUM_PLAYERS,
-  NEXT_PLAYER,
-  THROW_DICE
-};
-Stage currentStage = INTRO;
 
 // initialize the library by associating any needed LCD interface pin
 // with the arduino pin number it is connected to
@@ -91,6 +79,7 @@ void lightSequence(const LedArray& leds, bool on = true) {
   }
 }
 
+// non blocking delay added to the event queue
 void asyncDelay(const EventQueue& queue, unsigned long delayMillis) {
   queue.enqueue({ mkCb([]() {
                     // do nothing
@@ -98,6 +87,7 @@ void asyncDelay(const EventQueue& queue, unsigned long delayMillis) {
                   delayMillis });
 }
 
+// the blinking is done putting on/off the display
 void blinkText(const EventQueue& queue, int repetitions = 2, unsigned long delayMillis = 800) {
   for (int idx = 0; idx < repetitions; idx++) {
     queue.enqueue({ mkCb([]() {
@@ -111,10 +101,15 @@ void blinkText(const EventQueue& queue, int repetitions = 2, unsigned long delay
   }
 }
 
+// creates a non blocking scrolling effect
 void scrollText(const EventQueue& queue, const String& message, int row = 0, unsigned long delayMillis = 300) {
+  if (row > 1) {
+    Serial.println("*** Wrong Row ***");
+    Serial.println(row);
+  }
   int segmentSize = message.length() - displayWidth;
   if (segmentSize <= 0) {
-    // no need to scroll (the message is short enough)
+    // no need to scroll (the message is short enough to fit in the LCD display)
     queue.enqueue({ mkCb([message, row]() {
                       if (row == 0) {
                         lcd.clear();
@@ -122,11 +117,14 @@ void scrollText(const EventQueue& queue, const String& message, int row = 0, uns
                       lcd.setCursor(0, row);
                       lcd.print(message);
                     }),
-                    delayMillis });
+                    10 });
   } else {
     for (int idx = 0; idx <= segmentSize; idx++) {
       // schedule the print of shifted substrings of the message to be displayed one after another
       queue.enqueue({ mkCb([message, row, idx]() {
+                        if (row == 0 && idx == 0) {
+                          lcd.clear();
+                        }
                         String segment = message.substring(idx, idx + displayWidth);
                         lcd.setCursor(0, row);
                         lcd.print(segment);
@@ -156,12 +154,13 @@ void runIntro() {
   schedule(events);
 }
 
+// a few light effects
 void ledsDemo(const LedArray& leds) {
   lightSequence(leds);
   lightSequence(leds, false);
   // loop demo until players start the game
   leds.ledEvents.enqueue({ mkCb([&leds]() {
-                             if (currentStage == READY) {
+                             if (currentState == READY) {
                                ledsDemo(leds);
                              }
                            }),
@@ -180,29 +179,137 @@ void lightDemo() {
   schedule(pathLeds.ledEvents);
 }
 
-void nextStage() {
-  switch (currentStage) {
+// event to cancel
+unsigned short timerId = 0;
+
+// sometimes we want to cancel a timer before it triggers
+void timerCancel() {
+  if (verbose) {
+    String msg = "Cancelling timer - State: ";
+    msg.concat(stateName(currentState));
+    msg.concat(" - timerId: ");
+    msg.concat(timerId);
+    Serial.println(msg);
+  }
+  t.cancel(timerId);
+}
+
+// state machine implementation
+void nextState() {
+  switch (currentState) {
     case INTRO:
-      currentStage = LIGHT_DEMO;
+      setState(LIGHT_DEMO);
       runIntro();
       break;
     case LIGHT_DEMO:
-      currentStage = READY;
+      setState(READY);
       lightDemo();
       break;
     case START:
-      currentStage = SELECT_PLAYERS;
-      lcd.clear();
-      scrollText(events, "  How many players? Push the button to select.");
+      setState(SELECT_PLAYERS);
+      scrollText(events, " How many players?", 0, 10);
+      scrollText(events, " How many players? Push the button to select.");
       schedule(events);
       break;
-    case NUM_PLAYERS:
-      currentStage = NEXT_PLAYER;
+    case SELECT_PLAYERS:
+      setState(WAIT_SELECTION);
+      // create new timeout
+      events.enqueue({ mkCb([]() {
+                         if (numPlayers > 0) {
+                           setState(PLAYERS_SELECTED);
+                         } else {
+                           setState(NO_PLAYERS);
+                         }
+                       }),
+                       5000 });
+      timerId = schedule(events);
+      if (verbose) {
+        String msg1 = "Created new timeout for CONFIRM_PLAYERS - timerId: ";
+        msg1.concat(timerId);
+        Serial.println(msg1);
+      }
+      break;
+    case PLAYERS_SELECTED:
+      setState(CONFIRM_PLAYERS);
+      // create new timeout
+      events.enqueue({ mkCb([]() {
+                         if (currentState != NEXT_PLAYER) {
+                           setState(START);
+                         }
+                       }),
+                       5000 });
+      timerId = schedule(events);
+      if (verbose) {
+        String msg1 = "Created new timeout for CONFIRM_PLAYERS - timerId: ";
+        msg1.concat(timerId);
+        Serial.println(msg1);
+      }
+      break;
+    case NO_PLAYERS:
+      setState(START);
+      scrollText(events, "No players selected");
+      schedule(events);
+      break;
+    case CONFIRM_PLAYERS:
+      setState(PLAYERS_CONFIRMED);
+      String confirm = " Confirm ";
+      confirm.concat(numPlayers);
+      confirm.concat(" players?");
+      scrollText(events, confirm, 0, 10);
+      scrollText(events, "Push the button.", 1);
+      break;
+    case PLAYERS_CONFIRMED:
+      // do nothing, button required
+      break;
+    case NEXT_PLAYER:
+      setState(THROW_DICE);
       scrollText(events, "Player n. 1 ready!");
+      schedule(events);
       break;
     default:
-      //
+      if (verbose) {
+        Serial.println("nextState: default");
+        delay(500);
+      }
       break;
+  }
+}
+
+// state machine implementation
+
+void buttonState() {
+  if (buttonReleased) {
+    buttonReleased = false;
+    if (verbose) {
+      String msg = "Button released - State: ";
+      msg.concat(stateName(currentState));
+      msg.concat(", num players: ");
+      msg.concat(numPlayers);
+      Serial.println(msg);
+    }
+    switch (currentState) {
+      case READY:
+        setState(START);
+        break;
+      case WAIT_SELECTION:
+        setState(SELECT_PLAYERS);
+        // cancel current timeout
+        timerCancel();
+        numPlayers++;
+        lcd.setCursor(0, 1);
+        lcd.print(numPlayers);
+        break;
+      case PLAYERS_CONFIRMED:
+        setState(NEXT_PLAYER);
+        break;
+      default:
+        if (verbose) {
+          String msg2 = "Button pressed no action for state: ";
+          msg2.concat(currentState);
+          Serial.println(msg2);
+        }
+        break;
+    }
   }
 }
 
@@ -222,48 +329,11 @@ void setup() {
   lcd.begin(16, 2);
 }
 
-// event to cancel
-unsigned short timerId = 0;
-
 void loop() {
   // hadle timer
   t.handle();
-  // proceed to next stage
-  nextStage();
+  // proceed to next State
+  nextState();
   // handle button
-  if (buttonReleased) {
-    buttonReleased = false;
-    Serial.println("Button released");
-    switch (currentStage) {
-      case READY:
-        currentStage = START;
-        break;
-      case SELECT_PLAYERS:
-        // cancel current timeout
-        t.cancel(timerId);
-        numPlayers++;
-        lcd.setCursor(0, 1);
-        lcd.print(numPlayers);
-        // create new timeout
-        events.enqueue({ mkCb([]() {
-                           currentStage = NUM_PLAYERS;
-                         }),
-                         5000 });
-        timerId = schedule(events);
-        break;
-      default:
-        //
-        break;
-    }
-  }
-  //delay(100);
-  // fillUpEnergy(bossEnergyPins, BOSS_ENERGY);
-  // loopPins(playerPointsPins, PLAYER_POINTS);
-  // loopPins(pathLightPins, PATH_LIGHTS);
-
-  // set the cursor to column 0, line 1
-  // (note: line 1 is the second row, since counting begins with 0):
-  // lcd.setCursor(0, 1);
-  // print the number of seconds since reset:
-  // lcd.print(millis() / 1000);
+  buttonState();
 }
