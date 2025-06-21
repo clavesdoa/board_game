@@ -1,7 +1,4 @@
 #include <LiquidCrystal.h>
-// we use this implementation, install it in your Arduino IDE
-// https://github.com/Aasim-A/AsyncTimer
-#include <AsyncTimer.h>
 #include "board_game.h"
 
 const int BUTTON_PIN = 3;
@@ -60,11 +57,11 @@ void lightSequence(const LedArray& leds, bool on = true) {
 }
 
 // non blocking delay added to the event queue
-void asyncDelay(unsigned long delayMillis) {
-  events.add({ mkCb([]() {
-                 // do nothing
-               }),
-               delayMillis, false });
+void asyncDelay(const Scheduler& sched, unsigned long delayMillis) {
+  sched.add({ mkCb([]() {
+                // do nothing
+              }),
+              delayMillis, false });
 }
 
 // the blinking is done putting on/off the display
@@ -124,12 +121,12 @@ void runIntro() {
                10, false });
   // blink the writing on the display
   blinkText();
-  asyncDelay(500);
+  asyncDelay(events, 500);
   // scroll text with more greetings
   scrollText(" Hello Players!  Welcome to the Game!");
-  asyncDelay(1000);
+  asyncDelay(events, 1000);
   scrollText("Ready to play?");
-  asyncDelay(1000);
+  asyncDelay(events, 1000);
   scrollText("Push the button!", 1);
 }
 

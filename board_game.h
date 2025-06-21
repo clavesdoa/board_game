@@ -2,6 +2,9 @@
 #define BOARD_GAME_H
 
 // we use this implementation, install it in your Arduino IDE
+// https://github.com/Aasim-A/AsyncTimer
+#include <AsyncTimer.h>
+// we use this implementation, install it in your Arduino IDE
 // https://github.com/Francis-Magallanes/CircularQueue
 #include <Queue.h>
 
@@ -89,16 +92,19 @@ struct Event {
     delete cb;
   }
 };
-
 // event queue (must be preallocated with enough storage)
 using EventQueue = Queue<Event, 35>;
+
 // timer
 AsyncTimer t;
 // event scheduler
 struct Scheduler {
   void add(Event event) {
-    events.enqueue(event);
-    schedule();
+    if (events.enqueue(event)) {
+      schedule();
+    } else {
+      Serial.println("Add to queue failed");
+    }
   }
   void cancel() {
     if (verbose) {
@@ -121,7 +127,7 @@ private:
     }
     running = true;
     bool canCancel = events.front().cancellable;
-    unsigned short timerId = t.setTimeout([this]() {
+    unsigned short timerId = t.setTimeout([&]() {
       // call the lambda
       events.front().cb->call();
       // clean up the lambda
