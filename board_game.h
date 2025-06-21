@@ -6,59 +6,9 @@
 #include <Queue.h>
 
 // debug
-const bool verbose = false;
+const bool verbose = true;
 
-// To represents an event and being able to easily enqueue it using capturing lambdas, we must use a heap-allocated,
-// object-oriented wrapper to a function pointer, since more modern approaches are not fully supported across Arduinos
-
-// polymorphic callback interface
-struct Callback {
-  virtual void call() = 0;
-  virtual ~Callback() {}
-};
-
-// template wrapper for all (including capturing) lambdas
-template<typename Lambda>
-struct LambdaWrapper : Callback {
-  Lambda fn;
-  LambdaWrapper(Lambda l)
-    : fn(l) {}
-  void call() override {
-    fn();
-  }
-};
-
-// factory to create the wrapper (on the heap)
-template<typename Lambda>
-Callback* mkCb(Lambda l) {
-  return new LambdaWrapper<Lambda>(l);
-}
-
-// the Event further encapsulates the callback
-struct Event {
-  Callback* cb;
-  unsigned long delay;
-  // deallocate memory (must be called manually after calls are completed)
-  void cleanUp() {
-    delete cb;
-  }
-};
-
-// event queue pointer (must be preallocated with enough storage)
-using EventQueue = Queue<Event, 35>;
-// utility queue to manage generic events
-EventQueue events;
-
-// represents a led array (basically a strip of leds connected to pins)
-struct LedArray {
-  LedArray(const int* _pins, int _size)
-    : pins(_pins), size(_size){};
-  const int* pins;
-  int size;
-  EventQueue ledEvents;
-};
-
-// state "machine". It is actually implemented in the methods nextState() and buttonState() 
+// state "machine". It is actually implemented in the methods nextState() and buttonState()
 enum State {
   INTRO,
   LIGHT_DEMO,
@@ -102,5 +52,114 @@ void setState(State newState) {
   }
   currentState = newState;
 }
+
+// To represents an event and being able to easily enqueue it using capturing lambdas, we must use a heap-allocated,
+// object-oriented wrapper to a function pointer, since more modern approaches are not fully supported across Arduinos
+
+// polymorphic callback interface
+struct Callback {
+  virtual void call() = 0;
+  virtual ~Callback() {}
+};
+
+// template wrapper for all (including capturing) lambdas
+template<typename Lambda>
+struct LambdaWrapper : Callback {
+  Lambda fn;
+  LambdaWrapper(Lambda l)
+    : fn(l) {}
+  void call() override {
+    fn();
+  }
+};
+
+// factory to create the wrapper (on the heap)
+template<typename Lambda>
+Callback* mkCb(Lambda l) {
+  return new LambdaWrapper<Lambda>(l);
+}
+
+// the Event further encapsulates the callback
+struct Event {
+  Callback* cb;
+  unsigned long delay;
+  bool cancellable;
+  // deallocate memory (must be called manually after calls are completed)
+  void cleanUp() {
+    delete cb;
+  }
+};
+
+// event queue (must be preallocated with enough storage)
+using EventQueue = Queue<Event, 35>;
+// timer
+AsyncTimer t;
+// event scheduler
+struct Scheduler {
+  void add(Event event) {
+    events.enqueue(event);
+    schedule();
+  }
+  void cancel() {
+    if (verbose) {
+      Serial.print("Cancelling timer - State: ");
+      Serial.print(stateName(currentState));
+      Serial.print(" - timerId: ");
+      Serial.println(toCancelId);
+    }
+    t.cancel(toCancelId);
+  }
+private:
+  // schedule function calls so that the events run in a chain
+  void schedule() {
+    if (events.isEmpty()) {
+      running = false;
+      return;
+    }
+    if (running) {
+      return;
+    }
+    running = true;
+    bool canCancel = events.front().cancellable;
+    unsigned short timerId = t.setTimeout([this]() {
+      // call the lambda
+      events.front().cb->call();
+      // clean up the lambda
+      events.front().cleanUp();
+      // schedule next event after this completed
+      if (events.dequeue()) {
+        running = false;
+        schedule();
+      }
+    },
+                                          events.front().delay);
+    if (canCancel) {
+      toCancelId = timerId;
+      if (verbose) {
+        Serial.print("Cancellable timer - State: ");
+        Serial.print(stateName(currentState));
+        Serial.print(" - timerId: ");
+        Serial.println(toCancelId);
+      }
+    }
+  }
+  // flag to ensure only one scheduler runs at a time
+  bool running = false;
+  // events queue
+  EventQueue events;
+  // timer id to cancel (at the moment anly allows one timer to be cancelled)
+  unsigned short toCancelId;
+};
+// utility queue to manage generic events
+Scheduler events;
+
+// represents a led array (basically a strip of leds connected to pins)
+struct LedArray {
+  LedArray(const int* _pins, int _size)
+    : pins(_pins), size(_size){};
+  const int* pins;
+  int size;
+  Scheduler ledEvents;
+};
 
 #endif  // BOARD_GAME_H

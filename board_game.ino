@@ -7,27 +7,6 @@
 const int BUTTON_PIN = 3;
 const int displayWidth = 16;
 
-// timer
-AsyncTimer t;
-// schedule function calls so that the events run in a chain
-unsigned short schedule(const EventQueue& queue) {
-  if (queue.isEmpty()) {
-    return 0;
-  }
-  return t.setTimeout([&queue]() {
-    // call the lambda
-    queue.front().cb->call();
-    // clean up the lambda
-    queue.front().cleanUp();
-    // schedule next event after this completed
-    if (queue.dequeue()) {
-      // futile returning a value now, it could not be read in any case
-      schedule(queue);
-    }
-  },
-                      queue.front().delay);
-}
-
 // number of players
 unsigned int numPlayers = 0;
 
@@ -48,6 +27,7 @@ const LedArray pathLeds = LedArray(pathPins, sizeof(pathPins) / sizeof(pathPins[
 
 // manages the button events
 volatile unsigned long lastInterruptTime = 0;
+// we add a debounce mechanism since the physical button can bounce causing mutiple unwanted triggers
 const unsigned long debounceDelay = 50;
 volatile byte buttonReleased = false;
 void buttonReleasedInterrupt() {
@@ -66,10 +46,10 @@ void setUpPins(const LedArray& leds) {
 }
 
 void putOnOffLed(const LedArray& leds, int index, bool putOn = true, unsigned long delayMillis = 300) {
-  leds.ledEvents.enqueue({ mkCb([index, putOn, &leds]() {
-                             digitalWrite(leds.pins[index], putOn ? HIGH : LOW);
-                           }),
-                           delayMillis });
+  leds.ledEvents.add({ mkCb([index, putOn, &leds]() {
+                         digitalWrite(leds.pins[index], putOn ? HIGH : LOW);
+                       }),
+                       delayMillis, false });
 }
 
 // put on/off leds of a led array in sequence
@@ -80,29 +60,29 @@ void lightSequence(const LedArray& leds, bool on = true) {
 }
 
 // non blocking delay added to the event queue
-void asyncDelay(const EventQueue& queue, unsigned long delayMillis) {
-  queue.enqueue({ mkCb([]() {
-                    // do nothing
-                  }),
-                  delayMillis });
+void asyncDelay(unsigned long delayMillis) {
+  events.add({ mkCb([]() {
+                 // do nothing
+               }),
+               delayMillis, false });
 }
 
 // the blinking is done putting on/off the display
-void blinkText(const EventQueue& queue, int repetitions = 2, unsigned long delayMillis = 800) {
+void blinkText(int repetitions = 2, unsigned long delayMillis = 800) {
   for (int idx = 0; idx < repetitions; idx++) {
-    queue.enqueue({ mkCb([]() {
-                      lcd.noDisplay();
-                    }),
-                    delayMillis });
-    queue.enqueue({ mkCb([]() {
-                      lcd.display();
-                    }),
-                    delayMillis });
+    events.add({ mkCb([]() {
+                   lcd.noDisplay();
+                 }),
+                 delayMillis, false });
+    events.add({ mkCb([]() {
+                   lcd.display();
+                 }),
+                 delayMillis, false });
   }
 }
 
 // creates a non blocking scrolling effect
-void scrollText(const EventQueue& queue, const String& message, int row = 0, unsigned long delayMillis = 300) {
+void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
   if (row > 1) {
     Serial.println("*** Wrong Row ***");
     Serial.println(row);
@@ -110,48 +90,47 @@ void scrollText(const EventQueue& queue, const String& message, int row = 0, uns
   int segmentSize = message.length() - displayWidth;
   if (segmentSize <= 0) {
     // no need to scroll (the message is short enough to fit in the LCD display)
-    queue.enqueue({ mkCb([message, row]() {
-                      if (row == 0) {
-                        lcd.clear();
-                      }
-                      lcd.setCursor(0, row);
-                      lcd.print(message);
-                    }),
-                    10 });
+    events.add({ mkCb([message, row]() {
+                   if (row == 0) {
+                     lcd.clear();
+                   }
+                   lcd.setCursor(0, row);
+                   lcd.print(message);
+                 }),
+                 10, false });
   } else {
     for (int idx = 0; idx <= segmentSize; idx++) {
       // schedule the print of shifted substrings of the message to be displayed one after another
-      queue.enqueue({ mkCb([message, row, idx]() {
-                        if (row == 0 && idx == 0) {
-                          lcd.clear();
-                        }
-                        String segment = message.substring(idx, idx + displayWidth);
-                        lcd.setCursor(0, row);
-                        lcd.print(segment);
-                      }),
-                      delayMillis });
+      events.add({ mkCb([message, row, idx]() {
+                     if (row == 0 && idx == 0) {
+                       lcd.clear();
+                     }
+                     String segment = message.substring(idx, idx + displayWidth);
+                     lcd.setCursor(0, row);
+                     lcd.print(segment);
+                   }),
+                   delayMillis, false });
     }
   }
 }
 
 void runIntro() {
   // initial greetings
-  events.enqueue({ mkCb([]() {
-                     lcd.clear();
-                     lcd.setCursor(0, 0);
-                     lcd.print(" Hello Players!");
-                   }),
-                   10 });
+  events.add({ mkCb([]() {
+                 lcd.clear();
+                 lcd.setCursor(0, 0);
+                 lcd.print(" Hello Players!");
+               }),
+               10, false });
   // blink the writing on the display
-  blinkText(events);
-  asyncDelay(events, 500);
+  blinkText();
+  asyncDelay(500);
   // scroll text with more greetings
-  scrollText(events, " Hello Players!  Welcome to the Game!");
-  asyncDelay(events, 1000);
-  scrollText(events, "Ready to play?");
-  asyncDelay(events, 1000);
-  scrollText(events, "Push the button!", 1);
-  schedule(events);
+  scrollText(" Hello Players!  Welcome to the Game!");
+  asyncDelay(1000);
+  scrollText("Ready to play?");
+  asyncDelay(1000);
+  scrollText("Push the button!", 1);
 }
 
 // a few light effects
@@ -159,39 +138,21 @@ void ledsDemo(const LedArray& leds) {
   lightSequence(leds);
   lightSequence(leds, false);
   // loop demo until players start the game
-  leds.ledEvents.enqueue({ mkCb([&leds]() {
-                             if (currentState == READY) {
-                               ledsDemo(leds);
-                             }
-                           }),
-                           10 });
+  leds.ledEvents.add({ mkCb([&leds]() {
+                         if (currentState == READY) {
+                           ledsDemo(leds);
+                         }
+                       }),
+                       10, false });
 }
 
 void lightDemo() {
   // boss energy light demo
   ledsDemo(bossEnergyLeds);
-  schedule(bossEnergyLeds.ledEvents);
   // player points demo
   ledsDemo(playerPointsLeds);
-  schedule(playerPointsLeds.ledEvents);
   // path leds demo
   ledsDemo(pathLeds);
-  schedule(pathLeds.ledEvents);
-}
-
-// event to cancel
-unsigned short timerId = 0;
-
-// sometimes we want to cancel a timer before it triggers
-void timerCancel() {
-  if (verbose) {
-    String msg = "Cancelling timer - State: ";
-    msg.concat(stateName(currentState));
-    msg.concat(" - timerId: ");
-    msg.concat(timerId);
-    Serial.println(msg);
-  }
-  t.cancel(timerId);
 }
 
 // state machine implementation
@@ -207,64 +168,47 @@ void nextState() {
       break;
     case START:
       setState(SELECT_PLAYERS);
-      scrollText(events, " How many players?", 0, 10);
-      scrollText(events, " How many players? Push the button to select.");
-      schedule(events);
+      scrollText(" How many players?", 0, 10);
+      scrollText(" How many players? Push the button to select.");
       break;
     case SELECT_PLAYERS:
       setState(WAIT_SELECTION);
-      // create new timeout
-      events.enqueue({ mkCb([]() {
-                         if (numPlayers > 0) {
-                           setState(PLAYERS_SELECTED);
-                         } else {
-                           setState(NO_PLAYERS);
-                         }
-                       }),
-                       5000 });
-      timerId = schedule(events);
-      if (verbose) {
-        String msg1 = "Created new timeout for CONFIRM_PLAYERS - timerId: ";
-        msg1.concat(timerId);
-        Serial.println(msg1);
-      }
+      events.add({ mkCb([]() {
+                     if (numPlayers > 0) {
+                       setState(PLAYERS_SELECTED);
+                     } else {
+                       setState(NO_PLAYERS);
+                     }
+                   }),
+                   5000, true });
       break;
     case PLAYERS_SELECTED:
       setState(CONFIRM_PLAYERS);
-      // create new timeout
-      events.enqueue({ mkCb([]() {
-                         if (currentState != NEXT_PLAYER) {
-                           setState(START);
-                         }
-                       }),
-                       5000 });
-      timerId = schedule(events);
-      if (verbose) {
-        String msg1 = "Created new timeout for CONFIRM_PLAYERS - timerId: ";
-        msg1.concat(timerId);
-        Serial.println(msg1);
-      }
+      events.add({ mkCb([]() {
+                     if (currentState != NEXT_PLAYER) {
+                       setState(START);
+                     }
+                   }),
+                   5000, true });
       break;
     case NO_PLAYERS:
       setState(START);
-      scrollText(events, "No players selected");
-      schedule(events);
+      scrollText("No players selected");
       break;
     case CONFIRM_PLAYERS:
       setState(PLAYERS_CONFIRMED);
       String confirm = " Confirm ";
       confirm.concat(numPlayers);
       confirm.concat(" players?");
-      scrollText(events, confirm, 0, 10);
-      scrollText(events, "Push the button.", 1);
+      scrollText(confirm, 0, 10);
+      scrollText("Push the button.", 1);
       break;
     case PLAYERS_CONFIRMED:
       // do nothing, button required
       break;
     case NEXT_PLAYER:
       setState(THROW_DICE);
-      scrollText(events, "Player n. 1 ready!");
-      schedule(events);
+      scrollText("Player n. 1 ready!");
       break;
     default:
       if (verbose) {
@@ -276,25 +220,22 @@ void nextState() {
 }
 
 // state machine implementation
-
 void buttonState() {
   if (buttonReleased) {
     buttonReleased = false;
     if (verbose) {
-      String msg = "Button released - State: ";
-      msg.concat(stateName(currentState));
-      msg.concat(", num players: ");
-      msg.concat(numPlayers);
-      Serial.println(msg);
+      Serial.print("Button released - State: ");
+      Serial.print(stateName(currentState));
+      Serial.print(", num players: ");
+      Serial.println(numPlayers);
     }
     switch (currentState) {
       case READY:
         setState(START);
         break;
       case WAIT_SELECTION:
+        events.cancel();
         setState(SELECT_PLAYERS);
-        // cancel current timeout
-        timerCancel();
         numPlayers++;
         lcd.setCursor(0, 1);
         lcd.print(numPlayers);
@@ -304,9 +245,8 @@ void buttonState() {
         break;
       default:
         if (verbose) {
-          String msg2 = "Button pressed no action for state: ";
-          msg2.concat(currentState);
-          Serial.println(msg2);
+          Serial.print("Button pressed no action for state: ");
+          Serial.println(currentState);
         }
         break;
     }
