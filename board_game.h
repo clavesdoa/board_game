@@ -113,9 +113,22 @@ struct Scheduler {
       Serial.print(" - timerId: ");
       Serial.println(toCancelId);
     }
-    t.cancel(toCancelId);
+    if (toCancelId > 0) {
+      t.cancel(toCancelId);
+      cleanUpAndContinue();
+    }
   }
 private:
+  //cleanup and run next
+  void cleanUpAndContinue() {
+    // clean up the lambda
+    events.front().cleanUp();
+    // schedule next event after this completed
+    if (events.dequeue()) {
+      running = false;
+      schedule();
+    }
+  }
   // schedule function calls so that the events run in a chain
   void schedule() {
     if (events.isEmpty()) {
@@ -130,13 +143,7 @@ private:
     unsigned short timerId = t.setTimeout([&]() {
       // call the lambda
       events.front().cb->call();
-      // clean up the lambda
-      events.front().cleanUp();
-      // schedule next event after this completed
-      if (events.dequeue()) {
-        running = false;
-        schedule();
-      }
+      cleanUpAndContinue();
     },
                                           events.front().delay);
     if (canCancel) {
