@@ -86,7 +86,6 @@ Callback* mkCb(Lambda l) {
 struct Event {
   Callback* cb;
   unsigned long delay;
-  bool cancellable;
   // deallocate memory (must be called manually after calls are completed)
   void cleanUp() {
     delete cb;
@@ -106,29 +105,7 @@ struct Scheduler {
       Serial.println("Add to queue failed");
     }
   }
-  void cancel() {
-    if (verbose) {
-      Serial.print("Cancelling timer - State: ");
-      Serial.print(stateName(currentState));
-      Serial.print(" - timerId: ");
-      Serial.println(toCancelId);
-    }
-    if (toCancelId > 0) {
-      t.cancel(toCancelId);
-      cleanUpAndContinue();
-    }
-  }
 private:
-  //cleanup and run next
-  void cleanUpAndContinue() {
-    // clean up the lambda
-    events.front().cleanUp();
-    // schedule next event after this completed
-    if (events.dequeue()) {
-      running = false;
-      schedule();
-    }
-  }
   // schedule function calls so that the events run in a chain
   void schedule() {
     if (events.isEmpty()) {
@@ -139,29 +116,23 @@ private:
       return;
     }
     running = true;
-    bool canCancel = events.front().cancellable;
     unsigned short timerId = t.setTimeout([&]() {
       // call the lambda
       events.front().cb->call();
-      cleanUpAndContinue();
+      // clean up the lambda
+      events.front().cleanUp();
+      // schedule next event after this completed
+      if (events.dequeue()) {
+        running = false;
+        schedule();
+      }
     },
                                           events.front().delay);
-    if (canCancel) {
-      toCancelId = timerId;
-      if (verbose) {
-        Serial.print("Cancellable timer - State: ");
-        Serial.print(stateName(currentState));
-        Serial.print(" - timerId: ");
-        Serial.println(toCancelId);
-      }
-    }
   }
   // flag to ensure only one scheduler runs at a time
   bool running = false;
   // events queue
   EventQueue events;
-  // timer id to cancel (at the moment anly allows one timer to be cancelled)
-  unsigned short toCancelId;
 };
 // utility queue to manage generic events
 Scheduler events;
@@ -174,5 +145,29 @@ struct LedArray {
   int size;
   Scheduler ledEvents;
 };
+
+// cancellable timer. At the moment we can manage only one at a time (which is also all we need)
+unsigned short toCancelId = 0;
+
+void debugCancellableTimer(String context) {
+  if (verbose) {
+    Serial.print(context);
+    Serial.print(" timer - State: ");
+    Serial.print(stateName(currentState));
+    Serial.print(" - timerId: ");
+    Serial.println(toCancelId);
+  }
+}
+
+template<typename Func>
+void cancellableTimer(Func cb) {
+  toCancelId = t.setTimeout(cb, 5000);
+  debugCancellableTimer("Cancellable");
+}
+
+void cancelTimer() {
+  t.cancel(toCancelId);
+  debugCancellableTimer("Cancelled");
+}
 
 #endif  // BOARD_GAME_H

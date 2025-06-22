@@ -46,7 +46,7 @@ void putOnOffLed(const LedArray& leds, int index, bool putOn = true, unsigned lo
   leds.ledEvents.add({ mkCb([index, putOn, &leds]() {
                          digitalWrite(leds.pins[index], putOn ? HIGH : LOW);
                        }),
-                       delayMillis, false });
+                       delayMillis });
 }
 
 // put on/off leds of a led array in sequence
@@ -61,7 +61,7 @@ void asyncDelay(const Scheduler& sched, unsigned long delayMillis) {
   sched.add({ mkCb([]() {
                 // do nothing
               }),
-              delayMillis, false });
+              delayMillis });
 }
 
 // the blinking is done putting on/off the display
@@ -70,11 +70,11 @@ void blinkText(int repetitions = 2, unsigned long delayMillis = 800) {
     events.add({ mkCb([]() {
                    lcd.noDisplay();
                  }),
-                 delayMillis, false });
+                 delayMillis });
     events.add({ mkCb([]() {
                    lcd.display();
                  }),
-                 delayMillis, false });
+                 delayMillis });
   }
 }
 
@@ -94,7 +94,7 @@ void scrollText(const String& message, int row = 0, unsigned long delayMillis = 
                    lcd.setCursor(0, row);
                    lcd.print(message);
                  }),
-                 10, false });
+                 10 });
   } else {
     for (int idx = 0; idx <= segmentSize; idx++) {
       // schedule the print of shifted substrings of the message to be displayed one after another
@@ -106,7 +106,7 @@ void scrollText(const String& message, int row = 0, unsigned long delayMillis = 
                      lcd.setCursor(0, row);
                      lcd.print(segment);
                    }),
-                   delayMillis, false });
+                   delayMillis });
     }
   }
 }
@@ -118,7 +118,7 @@ void runIntro() {
                  lcd.setCursor(0, 0);
                  lcd.print(" Hello Players!");
                }),
-               10, false });
+               10 });
   // blink the writing on the display
   blinkText();
   asyncDelay(events, 500);
@@ -140,7 +140,7 @@ void ledsDemo(const LedArray& leds) {
                            ledsDemo(leds);
                          }
                        }),
-                       10, false });
+                       10 });
 }
 
 void lightDemo() {
@@ -171,22 +171,26 @@ void nextState() {
     case SELECT_PLAYERS:
       setState(WAIT_SELECTION);
       events.add({ mkCb([]() {
-                     if (numPlayers > 0) {
-                       setState(PLAYERS_SELECTED);
-                     } else {
-                       setState(NO_PLAYERS);
-                     }
+                     cancellableTimer([]() {
+                       if (numPlayers > 0) {
+                         setState(PLAYERS_SELECTED);
+                       } else {
+                         setState(NO_PLAYERS);
+                       }
+                     });
                    }),
-                   5000, true });
+                   10 });
       break;
     case PLAYERS_SELECTED:
       setState(CONFIRM_PLAYERS);
       events.add({ mkCb([]() {
-                     if (currentState != NEXT_PLAYER) {
-                       setState(START);
-                     }
+                     cancellableTimer([]() {
+                       if (currentState != NEXT_PLAYER) {
+                         setState(START);
+                       }
+                     });
                    }),
-                   5000, true });
+                   10 });
       break;
     case NO_PLAYERS:
       setState(START);
@@ -231,7 +235,7 @@ void buttonState() {
         setState(START);
         break;
       case WAIT_SELECTION:
-        events.cancel();
+        cancelTimer();
         setState(SELECT_PLAYERS);
         numPlayers++;
         lcd.setCursor(0, 1);
