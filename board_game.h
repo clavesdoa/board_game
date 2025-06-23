@@ -13,6 +13,7 @@ const bool verbose = true;
 
 // state "machine". It is actually implemented in the methods nextState() and buttonState()
 enum State {
+  IDLE,
   INTRO,
   LIGHT_DEMO,
   READY,
@@ -30,6 +31,7 @@ State currentState = INTRO;
 
 const char* stateName(State s) {
   switch (s) {
+    case IDLE: return "IDLE";
     case INTRO: return "INTRO";
     case LIGHT_DEMO: return "LIGHT_DEMO";
     case READY: return "READY";
@@ -92,7 +94,7 @@ struct Event {
   }
 };
 // event queue (must be preallocated with enough storage)
-using EventQueue = Queue<Event, 35>;
+using EventQueue = Queue<Event, 40>;
 
 // timer
 AsyncTimer t;
@@ -116,7 +118,7 @@ private:
       return;
     }
     running = true;
-    unsigned short timerId = t.setTimeout([&]() {
+    t.setTimeout([&]() {
       // call the lambda
       events.front().cb->call();
       // clean up the lambda
@@ -127,7 +129,7 @@ private:
         schedule();
       }
     },
-                                          events.front().delay);
+                 events.front().delay);
   }
   // flag to ensure only one scheduler runs at a time
   bool running = false;
@@ -157,12 +159,6 @@ void debugCancellableTimer(String context) {
     Serial.print(" - timerId: ");
     Serial.println(toCancelId);
   }
-}
-
-template<typename Func>
-void cancellableTimer(Func cb) {
-  toCancelId = t.setTimeout(cb, 5000);
-  debugCancellableTimer("Cancellable");
 }
 
 void cancelTimer() {

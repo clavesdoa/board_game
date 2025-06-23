@@ -155,6 +155,9 @@ void lightDemo() {
 // state machine implementation
 void nextState() {
   switch (currentState) {
+    case IDLE:
+      // Idle state. Used to park quietly while waiting for a timer event
+      break;
     case INTRO:
       setState(LIGHT_DEMO);
       runIntro();
@@ -164,37 +167,41 @@ void nextState() {
       lightDemo();
       break;
     case START:
-      setState(SELECT_PLAYERS);
+      setState(IDLE);
       scrollText(" How many players?", 0, 10);
       scrollText(" How many players? Push the button to select.");
+      // Adding the change to next state to the event queue, since we must wait to change state after the above text is displayed.
+      // This is necessary because of the cancellable timeout set in the next step, which cannot be started from a timeout itself
+      events.add({ mkCb([]() {
+                     setState(SELECT_PLAYERS);
+                   }),
+                   10 });
       break;
     case SELECT_PLAYERS:
       setState(WAIT_SELECTION);
-      events.add({ mkCb([]() {
-                     cancellableTimer([]() {
-                       if (numPlayers > 0) {
-                         setState(PLAYERS_SELECTED);
-                       } else {
-                         setState(NO_PLAYERS);
-                       }
-                     });
-                   }),
-                   10 });
+      toCancelId = t.setTimeout([]() {
+        if (numPlayers > 0) {
+          setState(PLAYERS_SELECTED);
+        } else {
+          setState(NO_PLAYERS);
+        }
+      },
+                                5000);
+      debugCancellableTimer("Cancellable");
       break;
     case PLAYERS_SELECTED:
       setState(CONFIRM_PLAYERS);
       events.add({ mkCb([]() {
-                     cancellableTimer([]() {
-                       if (currentState != NEXT_PLAYER) {
-                         setState(START);
-                       }
-                     });
+                     if (currentState != NEXT_PLAYER) {
+                       setState(START);
+                     }
                    }),
-                   10 });
+                   5000 });
       break;
     case NO_PLAYERS:
       setState(START);
       scrollText("No players selected");
+      asyncDelay(events, 1000);
       break;
     case CONFIRM_PLAYERS:
       setState(PLAYERS_CONFIRMED);
@@ -213,7 +220,8 @@ void nextState() {
       break;
     default:
       if (verbose) {
-        Serial.println("nextState: default");
+        Serial.print("nextState - no action for state: ");
+        Serial.println(stateName(currentState));
         delay(500);
       }
       break;
@@ -247,7 +255,7 @@ void buttonState() {
       default:
         if (verbose) {
           Serial.print("Button pressed no action for state: ");
-          Serial.println(currentState);
+          Serial.println(stateName(currentState));
         }
         break;
     }
