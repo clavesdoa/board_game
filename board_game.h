@@ -21,11 +21,10 @@ enum State {
   SELECT_PLAYERS,
   WAIT_SELECTION,
   NO_PLAYERS,
-  PLAYERS_SELECTED,
   CONFIRM_PLAYERS,
   PLAYERS_CONFIRMED,
   NEXT_PLAYER,
-  THROW_DICE
+  THROW_DICE,
 };
 State currentState = INTRO;
 
@@ -39,7 +38,6 @@ const char* stateName(State s) {
     case SELECT_PLAYERS: return "SELECT_PLAYERS";
     case WAIT_SELECTION: return "WAIT_SELECTION";
     case NO_PLAYERS: return "NO_PLAYERS";
-    case PLAYERS_SELECTED: return "PLAYERS_SELECTED";
     case CONFIRM_PLAYERS: return "CONFIRM_PLAYERS";
     case PLAYERS_CONFIRMED: return "PLAYERS_CONFIRMED";
     case NEXT_PLAYER: return "NEXT_PLAYER";
@@ -159,6 +157,12 @@ void debugCancellableTimer(String context) {
     Serial.print(" - timerId: ");
     Serial.println(toCancelId);
   }
+}
+
+template<typename Func>
+void cancellableTimer(Func f) {
+  toCancelId = t.setTimeout(f, 5000);
+  debugCancellableTimer("Cancellable");
 }
 
 void cancelTimer() {

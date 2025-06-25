@@ -78,6 +78,10 @@ void blinkText(int repetitions = 2, unsigned long delayMillis = 800) {
   }
 }
 
+char buffer[17];
+void makeRow(const String& msg) {
+  snprintf(buffer, 17, "%-16s", msg.c_str());
+}
 // creates a non blocking scrolling effect
 void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
   if (row > 1) {
@@ -88,23 +92,19 @@ void scrollText(const String& message, int row = 0, unsigned long delayMillis = 
   if (segmentSize <= 0) {
     // no need to scroll (the message is short enough to fit in the LCD display)
     events.add({ mkCb([message, row]() {
-                   if (row == 0) {
-                     lcd.clear();
-                   }
                    lcd.setCursor(0, row);
-                   lcd.print(message);
+                   makeRow(message);
+                   lcd.print(buffer);
                  }),
                  10 });
   } else {
     for (int idx = 0; idx <= segmentSize; idx++) {
       // schedule the print of shifted substrings of the message to be displayed one after another
       events.add({ mkCb([message, row, idx]() {
-                     if (row == 0 && idx == 0) {
-                       lcd.clear();
-                     }
                      String segment = message.substring(idx, idx + displayWidth);
                      lcd.setCursor(0, row);
-                     lcd.print(segment);
+                     makeRow(segment);
+                     lcd.print(buffer);
                    }),
                    delayMillis });
     }
@@ -156,7 +156,7 @@ void lightDemo() {
 void nextState() {
   switch (currentState) {
     case IDLE:
-      // Idle state. Used to park quietly while waiting for a timer event
+      // Idle state. Used to park quietly while waiting for a timer or button event
       break;
     case INTRO:
       setState(LIGHT_DEMO);
@@ -168,8 +168,9 @@ void nextState() {
       break;
     case START:
       setState(IDLE);
-      scrollText(" How many players?", 0, 10);
-      scrollText(" How many players? Push the button to select.");
+      scrollText("How many players?");
+      asyncDelay(events, 1000);
+      scrollText("Push the button to select.", 1);
       // Adding the change to next state to the event queue, since we must wait to change state after the above text is displayed.
       // This is necessary because of the cancellable timeout set in the next step, which cannot be started from a timeout itself
       events.add({ mkCb([]() {
@@ -179,37 +180,40 @@ void nextState() {
       break;
     case SELECT_PLAYERS:
       setState(WAIT_SELECTION);
-      toCancelId = t.setTimeout([]() {
+      cancellableTimer([]() {
         if (numPlayers > 0) {
-          setState(PLAYERS_SELECTED);
+          setState(CONFIRM_PLAYERS);
         } else {
           setState(NO_PLAYERS);
         }
-      },
-                                5000);
-      debugCancellableTimer("Cancellable");
-      break;
-    case PLAYERS_SELECTED:
-      setState(CONFIRM_PLAYERS);
-      events.add({ mkCb([]() {
-                     if (currentState != NEXT_PLAYER) {
-                       setState(START);
-                     }
-                   }),
-                   5000 });
+      });
       break;
     case NO_PLAYERS:
-      setState(START);
-      scrollText("No players selected");
-      asyncDelay(events, 1000);
+      setState(IDLE);
+      scrollText("No players");
+      scrollText("selected.", 1);
+      asyncDelay(events, 3000);
+      events.add({ mkCb([]() {
+                     setState(START);
+                   }),
+                   10 });
       break;
     case CONFIRM_PLAYERS:
-      setState(PLAYERS_CONFIRMED);
+      setState(IDLE);
       String confirm = " Confirm ";
       confirm.concat(numPlayers);
       confirm.concat(" players?");
       scrollText(confirm, 0, 10);
       scrollText("Push the button.", 1);
+      events.add({ mkCb([]() {
+                     setState(PLAYERS_CONFIRMED);
+                   }),
+                   10 });
+      cancellableTimer([]() {
+        // if not confirmed before 5 seconds, start all over again
+        numPlayers = 0;
+        setState(START);
+      });
       break;
     case PLAYERS_CONFIRMED:
       // do nothing, button required
@@ -217,6 +221,9 @@ void nextState() {
     case NEXT_PLAYER:
       setState(THROW_DICE);
       scrollText("Player n. 1 ready!");
+      break;
+    case THROW_DICE:
+      // do nothing for now
       break;
     default:
       if (verbose) {
@@ -246,10 +253,10 @@ void buttonState() {
         cancelTimer();
         setState(SELECT_PLAYERS);
         numPlayers++;
-        lcd.setCursor(0, 1);
-        lcd.print(numPlayers);
+        scrollText(String(numPlayers), 1);
         break;
       case PLAYERS_CONFIRMED:
+        cancelTimer();
         setState(NEXT_PLAYER);
         break;
       default:
