@@ -78,10 +78,12 @@ void blinkText(int repetitions = 2, unsigned long delayMillis = 800) {
   }
 }
 
+// format a 16 characters string to write to the LCD
 char buffer[17];
 void makeRow(const String& msg) {
   snprintf(buffer, 17, "%-16s", msg.c_str());
 }
+
 // creates a non blocking scrolling effect
 void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
   if (row > 1) {
@@ -113,12 +115,7 @@ void scrollText(const String& message, int row = 0, unsigned long delayMillis = 
 
 void runIntro() {
   // initial greetings
-  events.add({ mkCb([]() {
-                 lcd.clear();
-                 lcd.setCursor(0, 0);
-                 lcd.print(" Hello Players!");
-               }),
-               10 });
+  scrollText(" Hello Players!");
   // blink the writing on the display
   blinkText();
   asyncDelay(events, 500);
@@ -166,6 +163,9 @@ void nextState() {
       setState(READY);
       lightDemo();
       break;
+    case READY:
+      // do nothing, button required
+      break;
     case START:
       setState(IDLE);
       scrollText("How many players?");
@@ -200,10 +200,9 @@ void nextState() {
       break;
     case CONFIRM_PLAYERS:
       setState(IDLE);
-      String confirm = " Confirm ";
-      confirm.concat(numPlayers);
-      confirm.concat(" players?");
-      scrollText(confirm, 0, 10);
+      char buffer[30];
+      snprintf(buffer, sizeof(buffer), " Confirm %u players?", numPlayers);
+      scrollText(buffer);
       scrollText("Push the button.", 1);
       events.add({ mkCb([]() {
                      setState(PLAYERS_CONFIRMED);
@@ -229,6 +228,7 @@ void nextState() {
       if (verbose) {
         Serial.print("nextState - no action for state: ");
         Serial.println(stateName(currentState));
+        // let's add a little delay to avoid flooding the serial monitor
         delay(500);
       }
       break;
