@@ -22,6 +22,7 @@ enum State {
   WAIT_SELECTION,
   NO_PLAYERS,
   CONFIRM_PLAYERS,
+  WAIT_CONFIRMATION,
   PLAYERS_CONFIRMED,
   NEXT_PLAYER,
   THROW_DICE,
@@ -39,6 +40,7 @@ const char* stateName(State s) {
     case WAIT_SELECTION: return "WAIT_SELECTION";
     case NO_PLAYERS: return "NO_PLAYERS";
     case CONFIRM_PLAYERS: return "CONFIRM_PLAYERS";
+    case WAIT_CONFIRMATION: return "WAIT_CONFIRMATION";
     case PLAYERS_CONFIRMED: return "PLAYERS_CONFIRMED";
     case NEXT_PLAYER: return "NEXT_PLAYER";
     case THROW_DICE: return "THROW_DICE";
@@ -144,6 +146,10 @@ struct LedArray {
   const int* pins;
   int size;
   Scheduler ledEvents;
+};
+
+// represents a player
+struct Player {
 };
 
 // cancellable timer. At the moment we can manage only one at a time (which is also all we need)

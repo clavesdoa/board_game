@@ -6,6 +6,7 @@ const int DISPLAY_WIDTH = 16;
 
 // number of players
 unsigned int numPlayers = 0;
+Player 
 
 // initialize the library by associating any needed LCD interface pin
 // with the arduino pin number it is connected to
@@ -172,6 +173,7 @@ void nextState() {
       break;
     case START:
       setState(IDLE);
+      // cleanup second row
       scrollText(" ", 1);
       scrollText("How many players?");
       asyncDelay(events, 1000);
@@ -213,9 +215,12 @@ void nextState() {
       scrollText(buffer);
       scrollText("Push the button.", 1);
       events.add({ mkCb([]() {
-                     setState(PLAYERS_CONFIRMED);
+                     setState(WAIT_CONFIRMATION);
                    }),
                    10 });
+      break;
+    case WAIT_CONFIRMATION:
+      setState(PLAYERS_CONFIRMED);
       cancellableTimer([]() {
         // if not confirmed before 5 seconds, start all over again
         numPlayers = 0;
@@ -227,6 +232,7 @@ void nextState() {
       break;
     case NEXT_PLAYER:
       setState(THROW_DICE);
+      scrollText(" ", 1);
       scrollText("Player n. 1 ready!");
       break;
     case THROW_DICE:
