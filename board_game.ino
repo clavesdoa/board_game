@@ -2,7 +2,7 @@
 #include "board_game.h"
 
 const int BUTTON_PIN = 3;
-const int displayWidth = 16;
+const int DISPLAY_WIDTH = 16;
 
 // number of players
 unsigned int numPlayers = 0;
@@ -78,32 +78,36 @@ void blinkText(int repetitions = 2, unsigned long delayMillis = 800) {
   }
 }
 
-// format a 16 characters string to write to the LCD
-char buffer[17];
-void makeRow(const String& msg) {
-  snprintf(buffer, 17, "%-16s", msg.c_str());
+// format a 16 characters + 1 null termination char buffer to write to the LCD
+char buffer[DISPLAY_WIDTH + 1];
+void makeRow(const char* msg) {
+  snprintf(buffer, DISPLAY_WIDTH + 1, "%-16s", msg);
 }
 
 // creates a non blocking scrolling effect
-void scrollText(const String& message, int row = 0, unsigned long delayMillis = 300) {
+void scrollText(const String& message, int row = 0, unsigned long delayMillis = 200) {
   if (row > 1) {
     Serial.println("*** Wrong Row ***");
     Serial.println(row);
   }
-  int segmentSize = message.length() - displayWidth;
-  if (segmentSize <= 0) {
+  if (message.length() <= DISPLAY_WIDTH) {
     // no need to scroll (the message is short enough to fit in the LCD display)
     events.add({ mkCb([message, row]() {
                    lcd.setCursor(0, row);
-                   makeRow(message);
+                   makeRow(message.c_str());
                    lcd.print(buffer);
                  }),
                  10 });
   } else {
-    for (int idx = 0; idx <= segmentSize; idx++) {
+    // prepend 16 empty characters for better scrolling effect
+    char padded[DISPLAY_WIDTH + 1 + message.length()];
+    snprintf(padded, sizeof(padded), "%16s%s", "", message.c_str());
+    for (int idx = 0; idx <= message.length(); idx++) {
+      char segment[DISPLAY_WIDTH + 1];
+      strncpy(segment, padded + idx, DISPLAY_WIDTH);
+      segment[DISPLAY_WIDTH] = '\0';
       // schedule the print of shifted substrings of the message to be displayed one after another
-      events.add({ mkCb([message, row, idx]() {
-                     String segment = message.substring(idx, idx + displayWidth);
+      events.add({ mkCb([segment, row, idx]() {
                      lcd.setCursor(0, row);
                      makeRow(segment);
                      lcd.print(buffer);
@@ -120,7 +124,7 @@ void runIntro() {
   blinkText();
   asyncDelay(events, 500);
   // scroll text with more greetings
-  scrollText(" Hello Players!  Welcome to the Game!");
+  scrollText("Welcome to the Game!", 1);
   asyncDelay(events, 1000);
   scrollText("Ready to play?");
   asyncDelay(events, 1000);
@@ -168,6 +172,7 @@ void nextState() {
       break;
     case START:
       setState(IDLE);
+      scrollText(" ", 1);
       scrollText("How many players?");
       asyncDelay(events, 1000);
       scrollText("Push the button to select.", 1);
@@ -187,6 +192,9 @@ void nextState() {
           setState(NO_PLAYERS);
         }
       });
+      break;
+    case WAIT_SELECTION:
+      // do nothing, button required
       break;
     case NO_PLAYERS:
       setState(IDLE);

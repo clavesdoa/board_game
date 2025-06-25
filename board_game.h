@@ -92,7 +92,7 @@ struct Event {
   }
 };
 // event queue (must be preallocated with enough storage)
-using EventQueue = Queue<Event, 40>;
+using EventQueue = Queue<Event, 100>;
 
 // timer
 AsyncTimer t;
