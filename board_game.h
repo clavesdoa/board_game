@@ -26,6 +26,7 @@ enum State {
   PLAYERS_CONFIRMED,
   NEXT_PLAYER,
   THROW_DICE,
+  PROGRESS
 };
 State currentState = INTRO;
 
@@ -44,6 +45,7 @@ const char* stateName(State s) {
     case PLAYERS_CONFIRMED: return "PLAYERS_CONFIRMED";
     case NEXT_PLAYER: return "NEXT_PLAYER";
     case THROW_DICE: return "THROW_DICE";
+    case PROGRESS: return "PROGRESS";
     default: return "UNKNOWN";
   }
 }
@@ -149,8 +151,14 @@ struct LedArray {
 };
 
 // represents a player
+const unsigned int MAX_PLAYERS = 10;
 struct Player {
+  unsigned int points = 0;
+  unsigned int step = 0;
+  unsigned int hpGold = 0;
 };
+// players
+Player players[MAX_PLAYERS];
 
 // cancellable timer. At the moment we can manage only one at a time (which is also all we need)
 unsigned short toCancelId = 0;

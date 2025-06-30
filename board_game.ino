@@ -4,9 +4,16 @@
 const int BUTTON_PIN = 3;
 const int DISPLAY_WIDTH = 16;
 
-// number of players
 unsigned int numPlayers = 0;
-Player 
+// dice value
+long dice = 0;
+// next player
+unsigned int player = 0;
+unsigned int nextPlayer() {
+  unsigned int temp = player;
+  player = (player + 1) % numPlayers;
+  return temp + 1;
+}
 
 // initialize the library by associating any needed LCD interface pin
 // with the arduino pin number it is connected to
@@ -51,10 +58,15 @@ void putOnOffLed(const LedArray& leds, int index, bool putOn = true, unsigned lo
 }
 
 // put on/off leds of a led array in sequence
-void lightSequence(const LedArray& leds, bool on = true) {
-  for (int idx = 0; idx < leds.size; idx++) {
+void lightSequence(const LedArray& leds, int upToSize, bool on = true) {
+  for (int idx = 0; idx < upToSize; idx++) {
     putOnOffLed(leds, idx, on);
   }
+}
+
+// put on/off all leds of a led array in sequence
+void lightSequenceAll(const LedArray& leds, bool on = true) {
+  lightSequence(leds, leds.size, on);
 }
 
 // non blocking delay added to the event queue
@@ -88,8 +100,10 @@ void makeRow(const char* msg) {
 // creates a non blocking scrolling effect
 void scrollText(const String& message, int row = 0, unsigned long delayMillis = 200) {
   if (row > 1) {
-    Serial.println("*** Wrong Row ***");
-    Serial.println(row);
+    Serial.print("*** Wrong Row: ");
+    Serial.print(row);
+    Serial.println(" ***");
+    row = 0;
   }
   if (message.length() <= DISPLAY_WIDTH) {
     // no need to scroll (the message is short enough to fit in the LCD display)
@@ -100,12 +114,13 @@ void scrollText(const String& message, int row = 0, unsigned long delayMillis = 
                  }),
                  10 });
   } else {
-    // prepend 16 empty characters for better scrolling effect
+    // prepend 16 empty characters (+ 1 for terminating null) for better scrolling effect
     char padded[DISPLAY_WIDTH + 1 + message.length()];
     snprintf(padded, sizeof(padded), "%16s%s", "", message.c_str());
     for (int idx = 0; idx <= message.length(); idx++) {
       char segment[DISPLAY_WIDTH + 1];
       strncpy(segment, padded + idx, DISPLAY_WIDTH);
+      // terminating null
       segment[DISPLAY_WIDTH] = '\0';
       // schedule the print of shifted substrings of the message to be displayed one after another
       events.add({ mkCb([segment, row, idx]() {
@@ -117,6 +132,14 @@ void scrollText(const String& message, int row = 0, unsigned long delayMillis = 
     }
   }
 }
+
+// write formatted string
+void scrollTextFmt(const char* fmtMsg, unsigned int arg, int row = 0, unsigned long delayMillis = 200) {
+  char buffer[25];
+  snprintf(buffer, sizeof(buffer), fmtMsg, arg);
+  scrollText(buffer, row, delayMillis);
+}
+
 
 void runIntro() {
   // initial greetings
@@ -134,8 +157,8 @@ void runIntro() {
 
 // a few light effects
 void ledsDemo(const LedArray& leds) {
-  lightSequence(leds);
-  lightSequence(leds, false);
+  lightSequenceAll(leds);
+  lightSequenceAll(leds, false);
   // loop demo until players start the game
   leds.ledEvents.add({ mkCb([&leds]() {
                          if (currentState == READY) {
@@ -152,6 +175,38 @@ void lightDemo() {
   ledsDemo(playerPointsLeds);
   // path leds demo
   ledsDemo(pathLeds);
+}
+
+// player steps
+void playerSteps(Player& player) {
+  switch (player.step) {
+  }
+}
+
+void playerProgress() {
+  players[player].step += dice;
+  unsigned int currentStep = players[player].step;
+  // we got to the end :)
+  if (currentStep > 15) {
+    scrollText("You won!", 1);
+    blinkText();
+  }
+  // HP Gold :)
+  if (currentStep == 2 || currentStep == 7 || currentStep == 13) {
+    players[player].hpGold++;
+    scrollTextFmt("You have %u Hp Gold! :)", players[player].hpGold, 1);
+  }
+  // go back 1 step :(
+  if (currentStep == 5 || currentStep == 9) {
+    players[player].step--;
+    scrollText("You must go back one step! :(", 1);
+  }
+  // electricity
+  if (currentStep == 15) {
+  }
+  // danger zone :(
+  if (currentStep == 3 || currentStep == 8 || currentStep == 11 || currentStep == 14) {
+  }
 }
 
 // state machine implementation
@@ -188,6 +243,7 @@ void nextState() {
     case SELECT_PLAYERS:
       setState(WAIT_SELECTION);
       cancellableTimer([]() {
+        // if after 5 seconds do not have seected players start again
         if (numPlayers > 0) {
           setState(CONFIRM_PLAYERS);
         } else {
@@ -210,9 +266,7 @@ void nextState() {
       break;
     case CONFIRM_PLAYERS:
       setState(IDLE);
-      char buffer[30];
-      snprintf(buffer, sizeof(buffer), " Confirm %u players?", numPlayers);
-      scrollText(buffer);
+      scrollTextFmt(" Confirm %u players?", numPlayers);
       scrollText("Push the button.", 1);
       events.add({ mkCb([]() {
                      setState(WAIT_CONFIRMATION);
@@ -232,11 +286,18 @@ void nextState() {
       break;
     case NEXT_PLAYER:
       setState(THROW_DICE);
+      // show player's points
+      lightSequence(pathLeds, players[player].points);
       scrollText(" ", 1);
-      scrollText("Player n. 1 ready!");
+      scrollTextFmt("Player n. %u ready!", player + 1);
+      scrollText("Push the button to throw the dice", 1);
       break;
     case THROW_DICE:
-      // do nothing for now
+      // do nothing, button required
+      break;
+    case PROGRESS:
+      setState(IDLE);
+      playerProgress();
       break;
     default:
       if (verbose) {
@@ -273,6 +334,15 @@ void buttonState() {
         cancelTimer();
         setState(NEXT_PLAYER);
         break;
+      case THROW_DICE:
+        dice = random(6);
+        scrollTextFmt("Player n. %u", player + 1);
+        scrollTextFmt("Dice is %u...", dice, 1);
+        events.add({ mkCb([]() {
+                       setState(PROGRESS);
+                     }),
+                     3000 });
+        break;
       default:
         if (verbose) {
           Serial.print("Button pressed no action for state: ");
@@ -290,6 +360,8 @@ void setup() {
   setUpPins(pathLeds);
   // setup serial
   Serial.begin(9600);
+  // Use an unconnected analog pin to get a random seed
+  randomSeed(analogRead(A0));
   // setup button
   pinMode(BUTTON_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN),
