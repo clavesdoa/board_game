@@ -153,9 +153,10 @@ struct LedArray {
 // represents a player
 const unsigned int MAX_PLAYERS = 10;
 struct Player {
-  unsigned int points = 0;
+  unsigned int score = 0;
   unsigned int step = 0;
   unsigned int hpGold = 0;
+  bool skip = false;
 };
 // players
 Player players[MAX_PLAYERS];

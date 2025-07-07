@@ -4,15 +4,19 @@
 const int BUTTON_PIN = 3;
 const int DISPLAY_WIDTH = 16;
 
-unsigned int numPlayers = 0;
 // dice value
 long dice = 0;
 // next player
+unsigned int numPlayers = 0;
 unsigned int player = 0;
-unsigned int nextPlayer() {
-  unsigned int temp = player;
-  player = (player + 1) % numPlayers;
-  return temp + 1;
+void nextPlayer() {
+  while ((player = (player + 1) % numPlayers && players[player].skip)) {
+    if (verbose) {
+      Serial.print("player = ");
+      Serial.println(player);
+    }
+    players[player].skip = false;
+  }
 }
 
 // initialize the library by associating any needed LCD interface pin
@@ -21,14 +25,16 @@ const int rs = 12, en = 11, d4 = 10, d5 = 9, d6 = 8, d7 = 7;
 const LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 // energy leds
+const int LEDS_SIZE = 10;
+int energySize = 10;
 const int energyPins[] = { 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
-const LedArray bossEnergyLeds = LedArray(energyPins, sizeof(energyPins) / sizeof(energyPins[0]));
+const LedArray bossEnergyLeds = LedArray(energyPins, LEDS_SIZE);
 // player leds
 const int playerPins[] = { 32, 33, 34, 35, 36, 37, 38, 39, 40, 41 };
-const LedArray playerPointsLeds = LedArray(playerPins, sizeof(playerPins) / sizeof(playerPins[0]));
+const LedArray playerScoreLeds = LedArray(playerPins, LEDS_SIZE);
 // path leds
 const int pathPins[] = { 42, 43, 44, 45, 46, 47, 48, 49, 50, 51 };
-const LedArray pathLeds = LedArray(pathPins, sizeof(pathPins) / sizeof(pathPins[0]));
+const LedArray pathLeds = LedArray(pathPins, LEDS_SIZE);
 
 // manages the button events
 volatile unsigned long lastInterruptTime = 0;
@@ -171,16 +177,10 @@ void ledsDemo(const LedArray& leds) {
 void lightDemo() {
   // boss energy light demo
   ledsDemo(bossEnergyLeds);
-  // player points demo
-  ledsDemo(playerPointsLeds);
+  // player score demo
+  ledsDemo(playerScoreLeds);
   // path leds demo
   ledsDemo(pathLeds);
-}
-
-// player steps
-void playerSteps(Player& player) {
-  switch (player.step) {
-  }
 }
 
 void playerProgress() {
@@ -188,8 +188,17 @@ void playerProgress() {
   unsigned int currentStep = players[player].step;
   // we got to the end :)
   if (currentStep > 15) {
-    scrollText("You won!", 1);
-    blinkText();
+    scrollText("You reached the cannon. You are firing at the BOSS!", 1);
+    // update energy and score
+    energySize--;
+    players[player].score++;
+    lightSequence(bossEnergyLeds, energySize);
+    if (energySize < 0) {
+      scrollText("The BOSS is dead!");
+      scrollText("YOU WON!", 1);
+      blinkText();
+    }
+    // return
   }
   // HP Gold :)
   if (currentStep == 2 || currentStep == 7 || currentStep == 13) {
@@ -201,12 +210,27 @@ void playerProgress() {
     players[player].step--;
     scrollText("You must go back one step! :(", 1);
   }
-  // electricity
+  // electricity - skip one round :(
   if (currentStep == 15) {
+    players[player].skip = true;
+    scrollText("You have been electrocuted. You will skip one turn :(", 1);
   }
   // danger zone :(
   if (currentStep == 3 || currentStep == 8 || currentStep == 11 || currentStep == 14) {
+    scrollText("You woke up the BOSS! He is trowing stones at you! :(", 1);
+    long aim = random(3);
+    if (aim == 1) {
+      players[player].score--;
+      scrollText("Oh no, he hit you! :(", 1);
+      asyncDelay(events, 1000);
+    } else {
+      scrollText("Phew, he missed you! :)", 1);
+      asyncDelay(events, 1000);
+    }
   }
+  // next player
+  nextPlayer();
+  setState(NEXT_PLAYER);
 }
 
 // state machine implementation
@@ -286,8 +310,9 @@ void nextState() {
       break;
     case NEXT_PLAYER:
       setState(THROW_DICE);
-      // show player's points
-      lightSequence(pathLeds, players[player].points);
+      // show player's path & score
+      lightSequence(pathLeds, players[player].step);
+      lightSequence(playerScoreLeds, players[player].score);
       scrollText(" ", 1);
       scrollTextFmt("Player n. %u ready!", player + 1);
       scrollText("Push the button to throw the dice", 1);
@@ -332,6 +357,8 @@ void buttonState() {
         break;
       case PLAYERS_CONFIRMED:
         cancelTimer();
+        // initalise game
+        lightSequence(bossEnergyLeds, energySize);
         setState(NEXT_PLAYER);
         break;
       case THROW_DICE:
@@ -356,7 +383,7 @@ void buttonState() {
 void setup() {
   // setup led pins
   setUpPins(bossEnergyLeds);
-  setUpPins(playerPointsLeds);
+  setUpPins(playerScoreLeds);
   setUpPins(pathLeds);
   // setup serial
   Serial.begin(9600);
